@@ -1,0 +1,21 @@
+* text=auto eol=lf
+*.sh text eol=lf
+*.py text eol=lf
+*.md text eol=lf
+*.txt text eol=lf
+*.json text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.csv text eol=lf
+*.conf text eol=lf
+*.rules text eol=lf
+*.geojson text eol=lf
+*.html text eol=lf
+*.pdf binary
+*.docx binary
+*.xlsx binary
+*.xls binary
+*.png binary
+*.db binary
+*.stl binary
+*.step binary

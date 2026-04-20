@@ -1,0 +1,18 @@
+[project]
+name = "jobbench"
+version = "0.1.0"
+description = "Public JobBench benchmark and judge tooling"
+requires-python = ">=3.10"
+dependencies = [
+    "openai>=1.0.0",
+    "pandas>=2.0.0",
+    "openpyxl>=3.1.0",
+    "python-pptx>=0.6.0",
+    "huggingface-hub>=0.24.0",
+    "pyarrow>=15.0.0",
+    "pdfplumber>=0.11.0",
+    "mammoth>=1.8.0",
+]
+
+[tool.uv]
+package = false

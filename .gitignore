@@ -1,0 +1,18 @@
+# OS and editor noise
+.DS_Store
+Thumbs.db
+*.swp
+*~
+
+# Python cache
+__pycache__/
+*.py[cod]
+.venv/
+
+# Benchmark runtime artifacts
+/eval/logs/
+/eval/.judge_tmp/
+/opencode/
+
+# Dataset — fetched via ./setup.sh from Hugging Face, not tracked in git
+/dataset/
