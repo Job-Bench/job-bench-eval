@@ -2,7 +2,7 @@
 
 JobBench evaluates agentic CLI tools (Claude Code, Codex CLI, OpenCode) on the tedious, multi-source pre-processing that experienced professionals most want offloaded: reconciling contradictory data, cross-referencing records, tracing citations. Tasks are sourced from Workbank, a worker-desire survey across 35 white-collar occupations, shifting the question from *what can be automated* to *what workers actually want automated*. Each task ships with a working directory and a weighted rubric; after the agent finishes, an LLM judge scores the deliverables against that rubric.
 
-- 🌐 [Project Website](https://jobbench.pages.dev/) - Learn more about JobBench
+- 🌐 [Project Website](https://job-bench.github.io/) - Learn more about JobBench
 - 🔧 [Github Repo](https://github.com/Job-Bench/job-bench-eval/) - Access the eval scirpt of JobBench
 - 🤗 HF Datasets - Find all JobBench datasets
   - [JobBench (Main)](https://huggingface.co/datasets/JobBench/job-bench-main)
