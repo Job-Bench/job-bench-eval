@@ -2,6 +2,11 @@
 
 JobBench measures how well agentic CLI tools (Claude Code, Codex CLI, OpenCode) complete real-world white-collar tasks. Each task ships with a working directory and a rubric; after the agent finishes, an LLM judge scores the deliverables against the rubric.
 
+- 🌐 [Project Website](https://jobbench.pages.dev/) - Learn more about JobBench
+- 🔧 [Github Repo](https://github.com/Job-Bench/job-bench-eval/) - Access the eval scirpt of JobBench
+- 🤗 HF Datasets - Find all JobBench datasets
+  - [JobBench (Main)](https://huggingface.co/datasets/JobBench/job-bench-main)
+
 ## What's inside
 
 - **65 tasks across 35 professions** (biostatistician, lawyer, mechanical engineer, reporter, supply chain manager, web admin, …)
