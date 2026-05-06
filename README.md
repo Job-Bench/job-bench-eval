@@ -5,14 +5,14 @@ JobBench evaluates agentic CLI tools (Claude Code, Codex CLI, OpenCode) on the t
 - 🌐 [Project Website](https://job-bench.github.io/) - Learn more about JobBench
 - 🔧 [Github Repo](https://github.com/Job-Bench/job-bench-eval/) - Access the eval scirpt of JobBench
 - 🤗 HF Datasets - Find all JobBench datasets
-  - [JobBench (Main)](https://huggingface.co/datasets/JobBench/job-bench-main)
+  - [JobBench (Main)](https://huggingface.co/datasets/JobBench/job-bench)
 
 ## What's inside
 
 - **Two splits** across the same 35 professions (biostatistician, lawyer, mechanical engineer, reporter, supply chain manager, web admin, …):
   - **`main`** — 65 full tasks, including ground-truth materials the agent must discover via search.
   - **`easy`** — 63 simplified tasks (shorter prompts, no `files_required_to_search/`). Useful for cheaper smoke tests.
-- **Dataset**: hosted on Hugging Face at [`JobBench/job-bench-main`](https://huggingface.co/datasets/JobBench/job-bench-main); `./setup.sh` pulls both splits into `dataset/main/` and `dataset/easy/`.
+- **Dataset**: hosted on Hugging Face at [`JobBench/job-bench`](https://huggingface.co/datasets/JobBench/job-bench); `./setup.sh` pulls both splits into `dataset/main/` and `dataset/easy/`.
 - Each task lives at `dataset/<split>/<profession>/taskN/` and contains:
   - `task_folder/` — the working directory the agent operates in
   - `RUBRICS.json` — weighted pass/fail criteria used for scoring

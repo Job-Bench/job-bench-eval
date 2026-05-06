@@ -10,7 +10,7 @@
 
 set -euo pipefail
 
-REPO_ID="${DATASET_REPO_ID:-JobBench/job-bench-main}"
+REPO_ID="${DATASET_REPO_ID:-JobBench/job-bench}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEST="${SCRIPT_DIR}/dataset"
 FORCE="${FORCE:-0}"
