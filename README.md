@@ -9,9 +9,11 @@ JobBench evaluates agentic CLI tools (Claude Code, Codex CLI, OpenCode) on the t
 
 ## What's inside
 
-- **65 tasks across 35 professions** (biostatistician, lawyer, mechanical engineer, reporter, supply chain manager, web admin, …)
-- **Dataset**: hosted on Hugging Face at [`JobBench/job-bench-main`](https://huggingface.co/datasets/JobBench/job-bench-main); `./setup.sh` pulls it into `dataset/`
-- Each task lives at `dataset/<profession>/taskN/` and contains:
+- **Two splits** across the same 35 professions (biostatistician, lawyer, mechanical engineer, reporter, supply chain manager, web admin, …):
+  - **`main`** — 65 full tasks, including ground-truth materials the agent must discover via search.
+  - **`easy`** — 63 simplified tasks (shorter prompts, no `files_required_to_search/`). Useful for cheaper smoke tests.
+- **Dataset**: hosted on Hugging Face at [`JobBench/job-bench-main`](https://huggingface.co/datasets/JobBench/job-bench-main); `./setup.sh` pulls both splits into `dataset/main/` and `dataset/easy/`.
+- Each task lives at `dataset/<split>/<profession>/taskN/` and contains:
   - `task_folder/` — the working directory the agent operates in
   - `RUBRICS.json` — weighted pass/fail criteria used for scoring
   - `task_card.md` — human-readable task brief (sourced from ONET; not seen by the agent)
@@ -49,13 +51,14 @@ Per-agent authentication:
 git clone https://github.com/Job-Bench/job-bench-eval.git
 cd job-bench-eval
 
-# 2. Install Python deps + pull the dataset from Hugging Face
+# 2. Install Python deps + pull both splits from Hugging Face
+#    (lands at dataset/main/ and dataset/easy/)
 ./setup.sh
 
-# 3. Run one model through the full benchmark (Codex CLI example)
+# 3. Run one model through the main split (default; pass SPLIT=easy for the easy set)
 BENCHMARK_MODELS="gpt-5.4" ./eval/run_benchmark_codex_cli.sh
 
-# 4. Score the outputs with the default Grok judge
+# 4. Score the outputs with the default Grok judge (also defaults to main)
 JUDGE_API_KEY="your_xai_key" uv run ./eval/run_judge.sh
 ```
 
@@ -100,11 +103,19 @@ BENCHMARK_MODELS="anthropic/claude-sonnet-4-6|sonnet-4-6 openai/gpt-5.4|gpt-5-4"
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `TASKS_BASE_DIR` | `<repo_root>/dataset` | Dataset root to run against |
+| `SPLIT` | `main` | Which split to run: `main` or `easy` |
+| `TASKS_BASE_DIR` | `<repo_root>/dataset/<SPLIT>` | Dataset root; override to point at a custom subset |
 | `BENCHMARK_MODELS` | built-in defaults (CC/Codex); required for OpenCode | Space-separated model list, same variable across all three runners |
 | `RUN_LABEL` | empty | Suffix appended to output directory names |
 | `MAX_CONCURRENT_PER_MODEL` | runner default | Parallel tasks per model |
 | `TIMEOUT_PER_TASK` | runner default | Wall-clock cap per task |
+
+To run the easy split:
+
+```bash
+SPLIT=easy BENCHMARK_MODELS="gpt-5.4" ./eval/run_benchmark_codex_cli.sh
+SPLIT=easy JUDGE_API_KEY="your_xai_key" uv run ./eval/run_judge.sh
+```
 
 ### Scoping a run
 
@@ -157,7 +168,8 @@ Commonly tuned variables (see `eval/run_judge.sh` for the full list):
 | `JUDGE_API_BASE` | `https://api.x.ai/v1` | OpenAI-compatible endpoint |
 | `JUDGE_API_KEY` | (required) | Key for the endpoint above |
 | `EVAL_MODEL` | all | Only score this model's outputs |
-| `TARGET_DIR` | `<repo_root>/dataset` | Dataset root to judge |
+| `SPLIT` | `main` | Which split to judge: `main` or `easy` |
+| `TARGET_DIR` | `<repo_root>/dataset/<SPLIT>` | Dataset root; override to judge a custom subset |
 | `MAX_CONCURRENT` | 10 | Rubric-level parallelism |
 
 ## Output layout
@@ -165,10 +177,11 @@ Commonly tuned variables (see `eval/run_judge.sh` for the full list):
 After a run, each task directory is populated like this:
 
 ```
-dataset/<profession>/taskN/
+dataset/<split>/<profession>/taskN/    # <split> is "main" or "easy"
 ├── RUBRICS.json
 ├── task_card.md                       # human-readable task brief
 ├── task_folder/                       # source task materials
+├── files_required_to_search/          # main split only — search-discoverable refs
 ├── model_output/<model>/              # agent's final deliverables
 ├── model_traj/<model>/                # structured trace from the runner
 └── eval_result/eval_<model>/

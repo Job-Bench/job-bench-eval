@@ -11,8 +11,10 @@ set -e
 # ===== Configuration (edit here) =====
 # ============================================================
 
+# Which split of the dataset to run against (main | easy). Defaults to main.
+SPLIT="${SPLIT:-main}"
 # Target task root (the directory containing all profession subdirectories)
-TASKS_BASE_DIR="${TASKS_BASE_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/dataset}"
+TASKS_BASE_DIR="${TASKS_BASE_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/dataset/${SPLIT}}"
 # Model list -- supplied via BENCHMARK_MODELS env var (space-separated entries)
 # Each entry has the form "model_id|short_name", e.g.
 #   BENCHMARK_MODELS="anthropic/claude-sonnet-4-5|sonnet-4-5 openai/gpt-5.2|gpt-5-2"

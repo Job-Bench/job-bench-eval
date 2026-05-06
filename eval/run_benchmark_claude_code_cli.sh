@@ -14,8 +14,10 @@ export CLAUDE_NONINTERACTIVE=1
 # ===== Configuration (edit here) =====
 # ============================================================
 
+# Which split of the dataset to run against (main | easy). Defaults to main.
+SPLIT="${SPLIT:-main}"
 # Target task root (the directory containing all profession subdirectories)
-TASKS_BASE_DIR="${TASKS_BASE_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/dataset}"
+TASKS_BASE_DIR="${TASKS_BASE_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/dataset/${SPLIT}}"
 # Optional run label appended to output directory names to avoid clobbering past runs
 RUN_LABEL="${RUN_LABEL:-}"
 # Discover task directories (only taskN/task_folder paths)

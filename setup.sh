@@ -3,6 +3,10 @@
 # Set up the jobbench repo: Python environment + dataset.
 # Safe to re-run: `uv sync` is a no-op when deps are already installed,
 # and the dataset download is skipped when dataset/ is already populated.
+#
+# The HF dataset has two splits and lands at:
+#   dataset/main/<profession>/taskN/...
+#   dataset/easy/<profession>/taskN/...
 
 set -euo pipefail
 
@@ -17,8 +21,9 @@ Usage:
   ./setup.sh
 
 Runs:
-  1. uv sync --locked        (install Python deps and the 'hf' CLI)
-  2. hf download <dataset>   (pull dataset/ from Hugging Face)
+  1. uv sync --locked                (install Python deps and the 'hf' CLI)
+  2. hf download <repo>              (pull main + easy splits from Hugging Face)
+  3. Reorganize into dataset/main/   and dataset/easy/
 
 Environment:
   DATASET_REPO_ID  HF dataset repo id. Default: ${REPO_ID}
@@ -60,23 +65,33 @@ if [[ -d "$DEST" ]] && [[ -n "$(ls -A "$DEST" 2>/dev/null)" ]]; then
     rm -rf "$DEST"
 fi
 
-mkdir -p "$DEST"
 STAGE="$(mktemp -d)"
 trap 'rm -rf "$STAGE"' EXIT
 
-echo "Fetching ${REPO_ID} into staging ${STAGE}..."
+echo "Fetching main split (dataset/**) into staging ${STAGE}..."
 uv run hf download "$REPO_ID" \
     --repo-type=dataset \
     --include 'dataset/**' \
     --local-dir "$STAGE" > /dev/null
 
-if [[ ! -d "$STAGE/dataset" ]]; then
-    echo "[ERROR] Expected $STAGE/dataset after download; got:" >&2
+echo "Fetching easy split (dataset_easy/**)..."
+uv run hf download "$REPO_ID" \
+    --repo-type=dataset \
+    --include 'dataset_easy/**' \
+    --local-dir "$STAGE" > /dev/null
+
+if [[ ! -d "$STAGE/dataset" || ! -d "$STAGE/dataset_easy" ]]; then
+    echo "[ERROR] Expected $STAGE/dataset and $STAGE/dataset_easy after download; got:" >&2
     ls -la "$STAGE" >&2
     exit 1
 fi
 
-mv "$STAGE/dataset/"* "$DEST/"
-echo "Dataset ready at: $DEST"
+mkdir -p "$DEST/main" "$DEST/easy"
+mv "$STAGE/dataset/"* "$DEST/main/"
+mv "$STAGE/dataset_easy/"* "$DEST/easy/"
+
+echo "Dataset ready:"
+echo "  $DEST/main"
+echo "  $DEST/easy"
 echo ""
 echo "Setup complete."
