@@ -41,11 +41,15 @@ find_task_dirs() {
 MAX_CONCURRENT_PER_MODEL="${MAX_CONCURRENT_PER_MODEL:-6}"
 
 # Per-task timeout in seconds; the task is killed and retried on timeout
-TIMEOUT_PER_TASK="${TIMEOUT_PER_TASK:-3600}"  # default 60 minutes
+TIMEOUT_PER_TASK="${TIMEOUT_PER_TASK:-7200}"  # default 120 minutes
 # Retry timeout in seconds (more headroom on retries)
-RETRY_TIMEOUT_PER_TASK="${RETRY_TIMEOUT_PER_TASK:-3600}"  # default 60 minutes
+RETRY_TIMEOUT_PER_TASK="${RETRY_TIMEOUT_PER_TASK:-7200}"  # default 120 minutes
 # Max retries on timeout
 MAX_RETRIES="${MAX_RETRIES:-2}"
+
+# OpenCode otherwise caps model output (including reasoning tokens) at 32K.
+# Raise the default to 128K while preserving explicit caller overrides.
+export OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX="${OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX:-131072}"
 
 # Structured trajectory output directory name (relative to each task directory)
 TRAJ_DIR_NAME="${TRAJ_DIR_NAME:-model_traj}"
@@ -409,7 +413,9 @@ main() {
     echo "Temp Workspace: $TEMP_WORKSPACE_BASE"
     echo "Max concurrent per model: $MAX_CONCURRENT_PER_MODEL"
     echo "Timeout per task: ${TIMEOUT_PER_TASK}s ($(( TIMEOUT_PER_TASK / 60 )) min)"
+    echo "Retry timeout per task: ${RETRY_TIMEOUT_PER_TASK}s ($(( RETRY_TIMEOUT_PER_TASK / 60 )) min)"
     echo "Max retries on timeout: $MAX_RETRIES"
+    echo "OpenCode output token max: $OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX"
     echo "Structured trajectory directory name: $TRAJ_DIR_NAME"
     echo "OpenCode directory: $OPENCODE_DIR"
     echo "=========================================="
