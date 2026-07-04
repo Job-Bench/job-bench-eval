@@ -15,7 +15,9 @@ from __future__ import annotations
 
 import argparse
 import base64
+import binascii
 import fcntl
+import hashlib
 import json
 import os
 import re
@@ -26,6 +28,7 @@ from contextlib import contextmanager
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
+from zipfile import BadZipFile, ZipFile
 
 
 MAX_CHARS_PER_FILE = 200_000
@@ -79,8 +82,17 @@ def convert_file_to_text(path: Path) -> str:
         try:
             import mammoth
 
+            def embedded_image_placeholder(image):
+                return {
+                    "src": "embedded-image",
+                    "alt": f"Embedded image: {image.content_type}",
+                }
+
             with open(str(path), "rb") as f:
-                result = mammoth.convert_to_markdown(f)
+                result = mammoth.convert_to_markdown(
+                    f,
+                    convert_image=mammoth.images.img_element(embedded_image_placeholder),
+                )
             return result.value
         except ImportError:
             return f"[ERROR: mammoth not available for {path.name}]"
@@ -189,7 +201,7 @@ def rubric_needs_vision(rubric: dict) -> bool:
     return bool(VISUAL_RUBRIC_PATTERN.search(text))
 
 
-def collect_image_paths(output_dir: Path, cap: int = MAX_VISION_IMAGES) -> list[Path]:
+def collect_image_paths(output_dir: Path, cap: int | None = MAX_VISION_IMAGES) -> list[Path]:
     if not output_dir.exists():
         return []
     images = [
@@ -197,7 +209,7 @@ def collect_image_paths(output_dir: Path, cap: int = MAX_VISION_IMAGES) -> list[
         for p in sorted(output_dir.rglob("*"))
         if p.is_file() and p.suffix.lower().lstrip(".") in VISION_IMAGE_EXTS
     ]
-    return images[:cap]
+    return images if cap is None else images[:cap]
 
 
 def image_to_data_url(path: Path) -> str | None:
@@ -210,6 +222,92 @@ def image_to_data_url(path: Path) -> str | None:
     except Exception:
         return None
     return f"data:{mime};base64,{encoded}"
+
+
+def collect_image_attachments(
+    output_dir: Path,
+    cap: int = MAX_VISION_IMAGES,
+) -> list[tuple[str, str]]:
+    """Collect standalone and embedded images as deduplicated data URLs."""
+    if not output_dir.exists() or cap <= 0:
+        return []
+
+    attachments: list[tuple[str, str]] = []
+    seen_hashes: set[str] = set()
+
+    def add_attachment(name: str, mime: str, image_bytes: bytes) -> bool:
+        digest = hashlib.sha256(image_bytes).hexdigest()
+        if digest in seen_hashes:
+            return False
+        seen_hashes.add(digest)
+        encoded = base64.b64encode(image_bytes).decode("ascii")
+        attachments.append((name, f"data:{mime};base64,{encoded}"))
+        return len(attachments) >= cap
+
+    for path in collect_image_paths(output_dir, cap=None):
+        ext = path.suffix.lower().lstrip(".")
+        mime = VISION_MIME.get(ext)
+        if mime is None:
+            continue
+        try:
+            image_bytes = path.read_bytes()
+        except OSError:
+            continue
+        if add_attachment(path.relative_to(output_dir).as_posix(), mime, image_bytes):
+            return attachments
+
+    for docx_path in sorted(output_dir.rglob("*.docx")):
+        try:
+            with ZipFile(docx_path) as archive:
+                media_names = [
+                    name
+                    for name in sorted(archive.namelist())
+                    if name.startswith("word/media/")
+                    and Path(name).suffix.lower().lstrip(".") in VISION_IMAGE_EXTS
+                ]
+                for media_name in media_names:
+                    ext = Path(media_name).suffix.lower().lstrip(".")
+                    mime = VISION_MIME.get(ext)
+                    if mime is None:
+                        continue
+                    try:
+                        image_bytes = archive.read(media_name)
+                    except (KeyError, OSError):
+                        continue
+                    display_name = f"{docx_path.relative_to(output_dir).as_posix()}:{media_name}"
+                    if add_attachment(display_name, mime, image_bytes):
+                        return attachments
+        except (BadZipFile, OSError):
+            continue
+
+    for notebook_path in sorted(output_dir.rglob("*.ipynb")):
+        try:
+            notebook = json.loads(notebook_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        for cell_index, cell in enumerate(notebook.get("cells", [])):
+            for output_index, output in enumerate(cell.get("outputs", [])):
+                data = output.get("data", {})
+                if not isinstance(data, dict):
+                    continue
+                for mime in ("image/png", "image/jpeg", "image/gif", "image/webp"):
+                    encoded = data.get(mime)
+                    if isinstance(encoded, list):
+                        encoded = "".join(str(part) for part in encoded)
+                    if not isinstance(encoded, str):
+                        continue
+                    try:
+                        image_bytes = base64.b64decode("".join(encoded.split()), validate=True)
+                    except (ValueError, binascii.Error):
+                        continue
+                    display_name = (
+                        f"{notebook_path.relative_to(output_dir).as_posix()}:"
+                        f"cell-{cell_index}-output-{output_index}:{mime}"
+                    )
+                    if add_attachment(display_name, mime, image_bytes):
+                        return attachments
+
+    return attachments
 
 
 def normalize_criteria(rubric: dict) -> list[str]:
@@ -463,7 +561,7 @@ def judge_rubric(
     api_key: str,
     timeout_sec: int = 300,
     max_retries: int = 1,
-    image_paths: list[Path] | None = None,
+    image_attachments: list[tuple[str, str]] | None = None,
 ) -> tuple[dict, dict]:
     rubric_text = rubric.get("rubric", "")
     weight = rubric.get("weight", 0)
@@ -472,11 +570,8 @@ def judge_rubric(
     criteria_list_text = "\n".join(f"Criterion {idx}: {criterion}" for idx, criterion in enumerate(criteria))
 
     attached_images: list[tuple[str, str]] = []
-    if image_paths and rubric_needs_vision(rubric):
-        for p in image_paths:
-            url = image_to_data_url(p)
-            if url is not None:
-                attached_images.append((p.name, url))
+    if image_attachments and rubric_needs_vision(rubric):
+        attached_images.extend(image_attachments)
     vision_used = bool(attached_images)
 
     prompt = f"""You are an evaluation judge. Your task is to evaluate ALL criteria for a single rubric.
@@ -765,7 +860,7 @@ def main() -> None:
             else:
                 existing_results = load_existing_rubric_results(details_file)
                 api_base, api_key = resolve_api_config(args.judge_model, args.api_base, args.api_key)
-                image_paths = collect_image_paths(output_dir)
+                image_attachments = collect_image_attachments(output_dir)
 
                 results: list[dict | None] = [existing_results.get(idx) for idx in range(len(rubrics))]
                 with ThreadPoolExecutor(max_workers=args.max_workers) as executor:
@@ -780,7 +875,7 @@ def main() -> None:
                             api_key,
                             args.timeout_per_rubric,
                             args.max_retries,
-                            image_paths,
+                            image_attachments,
                         ): idx
                         for idx, rubric in enumerate(rubrics)
                         if results[idx] is None
