@@ -47,6 +47,12 @@ RETRY_TIMEOUT_PER_TASK="${RETRY_TIMEOUT_PER_TASK:-7200}"  # default 120 minutes
 # Max retries on timeout
 MAX_RETRIES="${MAX_RETRIES:-2}"
 
+# Provider request timeout policy for benchmark runs. Long reasoning requests may
+# stream for more than five minutes, so the outer per-task timeout is the total
+# limit. Abort only when an SSE stream produces no data for five minutes.
+OPENCODE_PROVIDER_TIMEOUT="${OPENCODE_PROVIDER_TIMEOUT:-false}"
+OPENCODE_PROVIDER_CHUNK_TIMEOUT="${OPENCODE_PROVIDER_CHUNK_TIMEOUT:-300000}"
+
 # OpenCode otherwise caps model output (including reasoning tokens) at 32K.
 # Raise the default to 128K while preserving explicit caller overrides.
 export OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX="${OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX:-131072}"
@@ -81,6 +87,61 @@ get_model_name() {
     else
         echo "$entry" | tr '/' '_' | tr '.' '-'
     fi
+}
+
+configure_opencode_provider_timeouts() {
+    local provider_ids=()
+    local entry model_id provider_id
+
+    for entry in "${MODELS[@]}"; do
+        model_id=$(get_model_id "$entry")
+        provider_id="${model_id%%/*}"
+        provider_ids+=("$provider_id")
+    done
+
+    local base_config="${OPENCODE_CONFIG_CONTENT:-}"
+    OPENCODE_CONFIG_CONTENT=$(
+        OPENCODE_CONFIG_CONTENT="$base_config" python3 - \
+            "$OPENCODE_PROVIDER_TIMEOUT" \
+            "$OPENCODE_PROVIDER_CHUNK_TIMEOUT" \
+            "${provider_ids[@]}" <<'PY'
+import json
+import os
+import sys
+
+
+def parse_timeout(value: str):
+    if value.lower() == "false":
+        return False
+    parsed = int(value)
+    if parsed <= 0:
+        raise ValueError("OPENCODE_PROVIDER_TIMEOUT must be false or a positive integer")
+    return parsed
+
+
+def parse_positive_int(name: str, value: str) -> int:
+    parsed = int(value)
+    if parsed <= 0:
+        raise ValueError(f"{name} must be a positive integer")
+    return parsed
+
+
+raw = os.environ.get("OPENCODE_CONFIG_CONTENT", "").strip()
+config = json.loads(raw) if raw else {}
+providers = config.setdefault("provider", {})
+timeout = parse_timeout(sys.argv[1])
+chunk_timeout = parse_positive_int("OPENCODE_PROVIDER_CHUNK_TIMEOUT", sys.argv[2])
+
+for provider_id in dict.fromkeys(sys.argv[3:]):
+    provider = providers.setdefault(provider_id, {})
+    options = provider.setdefault("options", {})
+    options["timeout"] = timeout
+    options["chunkTimeout"] = chunk_timeout
+
+print(json.dumps(config, separators=(",", ":")))
+PY
+    )
+    export OPENCODE_CONFIG_CONTENT
 }
 
 # Sanitize a run label for use as a directory suffix
@@ -402,6 +463,8 @@ IMPORTANT:
 main() {
     local num_models=${#MODELS[@]}
 
+    configure_opencode_provider_timeouts
+
     echo "=========================================="
     echo "JobBench Benchmark Runner (${num_models} Models)"
     echo "Models:"
@@ -415,6 +478,8 @@ main() {
     echo "Timeout per task: ${TIMEOUT_PER_TASK}s ($(( TIMEOUT_PER_TASK / 60 )) min)"
     echo "Retry timeout per task: ${RETRY_TIMEOUT_PER_TASK}s ($(( RETRY_TIMEOUT_PER_TASK / 60 )) min)"
     echo "Max retries on timeout: $MAX_RETRIES"
+    echo "OpenCode provider total timeout: $OPENCODE_PROVIDER_TIMEOUT"
+    echo "OpenCode provider SSE chunk timeout: ${OPENCODE_PROVIDER_CHUNK_TIMEOUT}ms"
     echo "OpenCode output token max: $OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX"
     echo "Structured trajectory directory name: $TRAJ_DIR_NAME"
     echo "OpenCode directory: $OPENCODE_DIR"
