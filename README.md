@@ -18,7 +18,7 @@ JobBench evaluates agentic CLI tools (Claude Code, Codex CLI, OpenCode) on the t
   - `RUBRICS.json` — weighted pass/fail criteria used for scoring
   - `task_card.md` — human-readable task brief (sourced from ONET; not seen by the agent)
 - **Supported agents**: Claude Code, Codex CLI, OpenCode
-- **Judge**: any OpenAI-compatible endpoint; default is `grok-4-1-fast` on xAI. Measured score deviation vs. `claude-opus-4.5` stays within 1%, while a full judge pass costs ~$2 vs. ~$60 — a ~30× cost saving.
+- **Judge**: any OpenAI-compatible endpoint; default is `grok-4.3` on xAI.
 
 ## Prerequisites
 
@@ -156,7 +156,7 @@ JUDGE_MODEL="your-judge-model" \
 uv run ./eval/run_judge.sh
 ```
 
-> Grok `grok-4-1-fast` is the validated judge for JobBench. Measured score deviation vs. `claude-opus-4.5` is within 1%, while costing ~$2 per full judge pass vs. ~$60 — a ~30× cost saving. Other models have not been validated against these rubrics — use them only for exploration.
+> Grok `grok-4.3` is the default judge for JobBench. Other models have not been validated against these rubrics — use them only for exploration.
 
 Vision-capable rubrics (those mentioning `plot`, `figure`, `visualization`, `Q-Q`, etc.) automatically attach images from the evaluated model's output directory to the judge prompt. This requires the judge model to accept multimodal input. Rubrics without visual keywords run text-only so the extra image tokens aren't spent.
 
@@ -164,7 +164,7 @@ Commonly tuned variables (see `eval/run_judge.sh` for the full list):
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `JUDGE_MODEL` | `grok-4-1-fast` | Judge model id |
+| `JUDGE_MODEL` | `grok-4.3` | Judge model id |
 | `JUDGE_API_BASE` | `https://api.x.ai/v1` | OpenAI-compatible endpoint |
 | `JUDGE_API_KEY` | (required) | Key for the endpoint above |
 | `EVAL_MODEL` | all | Only score this model's outputs |
@@ -193,7 +193,7 @@ The judge JSON contains per-rubric pass/fail, evidence snippets, and aggregate s
 ```json
 {
   "evaluated_model": "claude-sonnet-4-6_cc",
-  "judge_model": "grok-4-1-fast",
+  "judge_model": "grok-4.3",
   "total_score": 18,
   "max_score": 25,
   "pass_rate": "68%",
