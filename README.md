@@ -20,6 +20,8 @@ JobBench evaluates agentic CLI tools (Claude Code, Codex CLI, OpenCode) on the t
 - **Supported agents**: Claude Code, Codex CLI, OpenCode
 - **Judge**: any OpenAI-compatible endpoint; default is `grok-4.3` on xAI.
 
+> **Evaluation split:** All results on the JobBench leaderboard are run on the `main` split only. The benchmark runners and judge in this repository also default to `SPLIT=main`; set `SPLIT=easy` explicitly when you want the simplified split.
+
 ## Prerequisites
 
 System tools:
