@@ -16,7 +16,7 @@ TARGET_DIR="${TARGET_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/datas
 rubrics_file_name="RUBRICS"
 MAX_CONCURRENT="${MAX_CONCURRENT:-10}"              # max concurrency at the rubric level
 MAX_JUDGE_WORKERS="${MAX_JUDGE_WORKERS:-$MAX_CONCURRENT}"
-MAX_RETRIES="${MAX_RETRIES:-1}"
+MAX_RETRIES="${MAX_RETRIES:-3}"
 DEFAULT_JUDGE_MODELS="${DEFAULT_JUDGE_MODELS:-grok-4.3}"
 
 [[ "$TARGET_DIR" != /* ]] && TARGET_DIR="$(cd "$TARGET_DIR" 2>/dev/null && pwd)"

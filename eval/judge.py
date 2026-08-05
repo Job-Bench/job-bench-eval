@@ -560,7 +560,7 @@ def judge_rubric(
     api_base: str,
     api_key: str,
     timeout_sec: int = 300,
-    max_retries: int = 1,
+    max_retries: int = 3,
     image_attachments: list[tuple[str, str]] | None = None,
 ) -> tuple[dict, dict]:
     rubric_text = rubric.get("rubric", "")
@@ -638,7 +638,7 @@ IMPORTANT:
                     },
                     {"role": "user", "content": user_content},
                 ],
-                max_completion_tokens=8192,
+                max_completion_tokens=200000,
                 temperature=0.0,
                 timeout=timeout_sec,
             )
@@ -715,7 +715,7 @@ IMPORTANT:
             "criteria_count": criterion_count,
             "criteria_passed": 0,
             "criteria_results": default_criteria,
-            "overall_reasoning": f"Failed after {max_retries} retries: {last_error}",
+            "overall_reasoning": f"Failed after {max_retries} attempts: {last_error}",
         },
     }
     debug = {
@@ -804,7 +804,7 @@ def main() -> None:
     parser.add_argument("--api-base", default=None, help="OpenAI-compatible API base URL")
     parser.add_argument("--api-key", default=None, help="OpenAI-compatible API key")
     parser.add_argument("--max-workers", type=int, default=10)
-    parser.add_argument("--max-retries", type=int, default=1)
+    parser.add_argument("--max-retries", type=int, default=3)
     parser.add_argument("--timeout-per-rubric", type=int, default=300)
     parser.add_argument("--evaluated-model", default="", help="Name of the model output being judged")
     parser.add_argument("--lock-file", default=None, help="Optional lock file path for incremental details writes")
