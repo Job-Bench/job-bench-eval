@@ -101,6 +101,8 @@ BENCHMARK_MODELS="anthropic/claude-sonnet-4-6|sonnet-4-6 openai/gpt-5.4|gpt-5-4"
   ./eval/run_benchmark_opencode.sh
 ```
 
+Models outside OpenCode's catalog must be declared in `OPENCODE_CONFIG_CONTENT`. Give them a real `limit.context` — it defaults to `0`, which disables auto-compaction (the runner falls back to `OPENCODE_DEFAULT_CONTEXT`, 1M). Leave `limit.output` unset unless you know the model's peak: reasoning tokens come out of that budget, and exhausting it ends the task with no deliverables.
+
 ### Common environment variables
 
 | Variable | Default | Purpose |

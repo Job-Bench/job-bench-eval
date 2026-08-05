@@ -57,6 +57,9 @@ OPENCODE_PROVIDER_CHUNK_TIMEOUT="${OPENCODE_PROVIDER_CHUNK_TIMEOUT:-300000}"
 # Raise the default to 128K while preserving explicit caller overrides.
 export OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX="${OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX:-131072}"
 
+# Context assumed for config-declared models, which otherwise default to 0 (no compaction).
+OPENCODE_DEFAULT_CONTEXT="${OPENCODE_DEFAULT_CONTEXT:-1000000}"
+
 # Structured trajectory output directory name (relative to each task directory)
 TRAJ_DIR_NAME="${TRAJ_DIR_NAME:-model_traj}"
 
@@ -101,7 +104,8 @@ configure_opencode_provider_timeouts() {
 
     local base_config="${OPENCODE_CONFIG_CONTENT:-}"
     OPENCODE_CONFIG_CONTENT=$(
-        OPENCODE_CONFIG_CONTENT="$base_config" python3 - \
+        OPENCODE_CONFIG_CONTENT="$base_config" \
+        OPENCODE_DEFAULT_CONTEXT="$OPENCODE_DEFAULT_CONTEXT" python3 - \
             "$OPENCODE_PROVIDER_TIMEOUT" \
             "$OPENCODE_PROVIDER_CHUNK_TIMEOUT" \
             "${provider_ids[@]}" <<'PY'
@@ -137,6 +141,14 @@ for provider_id in dict.fromkeys(sys.argv[3:]):
     options = provider.setdefault("options", {})
     options["timeout"] = timeout
     options["chunkTimeout"] = chunk_timeout
+
+# Catalog-resolved models are untouched; only config-declared ones need this.
+default_context = parse_positive_int("OPENCODE_DEFAULT_CONTEXT", os.environ["OPENCODE_DEFAULT_CONTEXT"])
+for provider in providers.values():
+    for model in (provider.get("models") or {}).values():
+        limit = model.setdefault("limit", {})
+        if not limit.get("context"):
+            limit["context"] = default_context
 
 print(json.dumps(config, separators=(",", ":")))
 PY
