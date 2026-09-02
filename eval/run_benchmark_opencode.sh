@@ -49,9 +49,9 @@ MAX_RETRIES="${MAX_RETRIES:-2}"
 
 # Provider request timeout policy for benchmark runs. Long reasoning requests may
 # stream for more than five minutes, so the outer per-task timeout is the total
-# limit. Abort only when an SSE stream produces no data for five minutes.
+# limit. Abort only when an SSE stream produces no data for thirty minutes.
 OPENCODE_PROVIDER_TIMEOUT="${OPENCODE_PROVIDER_TIMEOUT:-false}"
-OPENCODE_PROVIDER_CHUNK_TIMEOUT="${OPENCODE_PROVIDER_CHUNK_TIMEOUT:-300000}"
+OPENCODE_PROVIDER_CHUNK_TIMEOUT="${OPENCODE_PROVIDER_CHUNK_TIMEOUT:-1800000}"
 
 # OpenCode otherwise caps model output (including reasoning tokens) at 32K.
 # Raise the default to 128K while preserving explicit caller overrides.
