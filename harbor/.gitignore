@@ -1,0 +1,10 @@
+/.venv/
+/.cache/
+/.generated/
+/current
+/tasks
+/manifest.json
+/jobs/
+/.setup.lock
+__pycache__/
+*.py[cod]

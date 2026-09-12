@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 
 # Set up the jobbench repo: Python environment + dataset.
-# Safe to re-run: `uv sync` is a no-op when deps are already installed,
-# and the dataset download is skipped when dataset/ is already populated.
+# Every run checks Hugging Face and safely refreshes canonical task sources.
 #
 # The HF dataset has two splits and lands at:
 #   dataset/main/<profession>/taskN/...
@@ -12,23 +11,28 @@ set -euo pipefail
 
 REPO_ID="${DATASET_REPO_ID:-JobBench/job-bench}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DEST="${SCRIPT_DIR}/dataset"
 FORCE="${FORCE:-0}"
 
 usage() {
     cat <<EOF
 Usage:
-  ./setup.sh
+  ./setup.sh [--revision HF_COMMIT_OR_REF] [--repo-id ORG/DATASET]
 
 Runs:
-  1. uv sync --locked                (install Python deps and the 'hf' CLI)
-  2. hf download <repo>              (pull main + easy splits from Hugging Face)
-  3. Reorganize into dataset/main/   and dataset/easy/
+  1. Install the locked root Python environment in .venv/.
+  2. Build the pinned Excel calculation runtime (Docker required).
+  3. Resolve the HF revision and refresh both dataset splits.
+
+Evaluation history and local files outside canonical source locations stay in
+place. Replaced/deleted sources and retired tasks are backed up in dataset/.setup/.
+On first use, existing task_card.md, RUBRICS.json, task_folder/ and
+files_required_to_search/ contents are adopted as managed sources.
 
 Environment:
   DATASET_REPO_ID  HF dataset repo id. Default: ${REPO_ID}
-  FORCE            Set to 1 to wipe an existing dataset/ and re-download.
+  FORCE            Deprecated; refresh is now the default and never wipes history.
   HF_TOKEN         Only needed if the dataset repo is private.
+  JOBBENCH_DATASET_ONLY  Set to 1 to refresh task data without preparing the judge runtime.
 EOF
 }
 
@@ -48,50 +52,16 @@ require_command uv
 
 echo "==> Installing Python dependencies (uv sync --locked)..."
 cd "$SCRIPT_DIR"
-uv sync --locked
+UV_PROJECT_ENVIRONMENT="${SCRIPT_DIR}/.venv" uv sync --locked --project "$SCRIPT_DIR"
 
-echo ""
-echo "==> Fetching dataset from Hugging Face..."
-
-if [[ -d "$DEST" ]] && [[ -n "$(ls -A "$DEST" 2>/dev/null)" ]]; then
-    if [[ "$FORCE" != "1" ]]; then
-        echo "dataset/ already populated at: $DEST"
-        echo "Set FORCE=1 to wipe and re-download."
-        echo ""
-        echo "Setup complete."
-        exit 0
-    fi
-    echo "FORCE=1 — wiping $DEST"
-    rm -rf "$DEST"
+if [[ "${JOBBENCH_DATASET_ONLY:-0}" != "1" ]]; then
+    echo "==> Preparing the pinned Excel calculation runtime..."
+    bash "${SCRIPT_DIR}/eval/setup_judge.sh"
 fi
 
-STAGE="$(mktemp -d)"
-trap 'rm -rf "$STAGE"' EXIT
-
-echo "Fetching main split (dataset/**) into staging ${STAGE}..."
-uv run hf download "$REPO_ID" \
-    --repo-type=dataset \
-    --include 'dataset/**' \
-    --local-dir "$STAGE" > /dev/null
-
-echo "Fetching easy split (dataset_easy/**)..."
-uv run hf download "$REPO_ID" \
-    --repo-type=dataset \
-    --include 'dataset_easy/**' \
-    --local-dir "$STAGE" > /dev/null
-
-if [[ ! -d "$STAGE/dataset" || ! -d "$STAGE/dataset_easy" ]]; then
-    echo "[ERROR] Expected $STAGE/dataset and $STAGE/dataset_easy after download; got:" >&2
-    ls -la "$STAGE" >&2
-    exit 1
-fi
-
-mkdir -p "$DEST/main" "$DEST/easy"
-mv "$STAGE/dataset/"* "$DEST/main/"
-mv "$STAGE/dataset_easy/"* "$DEST/easy/"
-
-echo "Dataset ready:"
-echo "  $DEST/main"
-echo "  $DEST/easy"
 echo ""
-echo "Setup complete."
+echo "==> Checking Hugging Face and refreshing task sources..."
+if [[ "$FORCE" == "1" ]]; then
+    echo "FORCE=1 is deprecated: every run refreshes sources and preserves history."
+fi
+exec "${SCRIPT_DIR}/.venv/bin/python" "${SCRIPT_DIR}/scripts/sync_dataset.py" "$@"

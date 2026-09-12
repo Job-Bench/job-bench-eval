@@ -1,0 +1,17 @@
+# Native Harbor 0.22.0 JobConfig. JobBench supplies tasks and the default
+# jobs directory; omit tasks/datasets here.
+n_attempts: 1
+n_concurrent_trials: 4
+
+environment:
+  type: docker
+  delete: true
+
+agents:
+  - name: terminus-2
+    model_name: provider/model
+    kwargs:
+      max_turns: 50
+      llm_call_kwargs:
+        # Provider support and limits vary by model.
+        max_tokens: 8192
