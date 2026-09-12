@@ -385,6 +385,7 @@ run_with_judge_model() {
 }
 
 main() {
+    bash "${SCRIPT_DIR}/check_dataset_freshness.sh" "$TARGET_DIR" || true
     echo "=========================================="
     echo "Text-Only Evaluation Judge (Routed OpenAI-Compatible APIs)"
     echo "Target Dir: $TARGET_DIR"

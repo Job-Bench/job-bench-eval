@@ -512,6 +512,7 @@ main() {
     # cd into the opencode directory
     cd "$OPENCODE_DIR"
 
+    bash "${SCRIPT_DIR}/check_dataset_freshness.sh" "$TASKS_BASE_DIR" || true
     local task_dirs=($(find_task_dirs))
     local total_tasks=${#task_dirs[@]}
 

@@ -573,6 +573,7 @@ main() {
     # cd into the script directory
     cd "$SCRIPT_DIR"
 
+    bash "${SCRIPT_DIR}/check_dataset_freshness.sh" "$TASKS_BASE_DIR" || true
     # Find all task_folder directories
     local task_dirs=($(find_task_dirs))
     local total_tasks=${#task_dirs[@]}
