@@ -1,0 +1,22 @@
+[project]
+name = "jobbench-harbor"
+version = "0.1.0"
+description = "Independent Harbor tasks and evaluation interface for JobBench"
+requires-python = ">=3.12"
+dependencies = [
+    "harbor==0.22.0",
+    "huggingface-hub>=0.34.0",
+    "pyyaml>=6.0",
+]
+
+[dependency-groups]
+test = [
+    "pandas>=2.0.0",
+    "openpyxl>=3.1.0",
+    "python-pptx>=0.6.0",
+    "pdfplumber>=0.11.0",
+    "mammoth>=1.8.0",
+]
+
+[tool.uv]
+package = false
