@@ -525,7 +525,42 @@ def get_openai_client(api_base: str, api_key: str):
     return OpenAI(base_url=api_base, api_key=api_key)
 
 
+def _remove_json_trailing_commas(content: str) -> str:
+    """Remove only container-tail commas outside strings; validate JSON separately.
+
+    Mirrored by Harbor's independent raw-response validator. Do not turn empty
+    entries such as [,], {,}, or [1,,] into valid JSON.
+    """
+    result = []
+    in_string = False
+    escaped = False
+    whitespace = " \t\r\n"
+    for index, character in enumerate(content):
+        if in_string:
+            if escaped:
+                escaped = False
+            elif character == "\\":
+                escaped = True
+            elif character == '"':
+                in_string = False
+        elif character == '"':
+            in_string = True
+        elif character == ",":
+            following = index + 1
+            while following < len(content) and content[following] in whitespace:
+                following += 1
+            previous = index - 1
+            while previous >= 0 and content[previous] in whitespace:
+                previous -= 1
+            if (following < len(content) and content[following] in "]}"
+                    and previous >= 0 and content[previous] not in "[{,:"):
+                continue
+        result.append(character)
+    return "".join(result)
+
+
 def parse_judge_json(content: str) -> tuple[dict, str]:
+    candidates = [(content, "direct_json")]
     try:
         return json.loads(content), "direct_json"
     except json.JSONDecodeError:
@@ -533,6 +568,7 @@ def parse_judge_json(content: str) -> tuple[dict, str]:
 
     fence = re.search(r"```(?:json)?\s*\n(.*?)\n\s*```", content, re.DOTALL)
     if fence:
+        candidates.append((fence.group(1).strip(), "markdown_fence"))
         try:
             return json.loads(fence.group(1).strip()), "markdown_fence"
         except json.JSONDecodeError:
@@ -541,14 +577,26 @@ def parse_judge_json(content: str) -> tuple[dict, str]:
     first = content.find("{")
     last = content.rfind("}")
     if first != -1 and last > first:
+        candidates.append((content[first:last + 1], "first_last_brace"))
         try:
             return json.loads(content[first:last + 1]), "first_last_brace"
         except json.JSONDecodeError:
             pass
 
     for candidate in reversed(re.findall(r"\{.*?\"criteria_results\"\s*:\s*\[.*?\].*?\}", content, re.DOTALL)):
+        candidates.append((candidate, "regex_extract"))
         try:
             return json.loads(candidate), "regex_extract"
+        except json.JSONDecodeError:
+            continue
+
+    # Preserve the existing successful fallbacks before attempting recovery.
+    for candidate, status in candidates:
+        recovered = _remove_json_trailing_commas(candidate)
+        if recovered == candidate:
+            continue
+        try:
+            return json.loads(recovered), f"{status}_trailing_commas"
         except json.JSONDecodeError:
             continue
 

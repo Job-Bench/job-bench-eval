@@ -24,6 +24,9 @@ SUCCESSFUL_PARSE_STATUSES = {
     "first_last_brace",
     "regex_extract",
 }
+SUCCESSFUL_PARSE_STATUSES |= {
+    f"{status}_trailing_commas" for status in SUCCESSFUL_PARSE_STATUSES
+}
 
 
 class VerificationError(RuntimeError):
@@ -149,7 +152,40 @@ def _validate_judge_logs(rubric_log_dir: Path, rubric_count: int) -> None:
             raise VerificationError(f"Judge response schema is invalid in {path.name}")
 
 
+def _remove_json_trailing_commas(content: str) -> str:
+    """Mirror the shared judge's string-aware, container-tail-only recovery."""
+    result = []
+    in_string = False
+    escaped = False
+    whitespace = " \t\r\n"
+    for index, character in enumerate(content):
+        if in_string:
+            if escaped:
+                escaped = False
+            elif character == "\\":
+                escaped = True
+            elif character == '"':
+                in_string = False
+        elif character == '"':
+            in_string = True
+        elif character == ",":
+            following = index + 1
+            while following < len(content) and content[following] in whitespace:
+                following += 1
+            previous = index - 1
+            while previous >= 0 and content[previous] in whitespace:
+                previous -= 1
+            if (following < len(content) and content[following] in "]}"
+                    and previous >= 0 and content[previous] not in "[{,:"):
+                continue
+        result.append(character)
+    return "".join(result)
+
+
 def _parse_judge_response(raw: str, parse_status: str) -> dict:
+    recover_commas = parse_status.endswith("_trailing_commas")
+    if recover_commas:
+        parse_status = parse_status.removesuffix("_trailing_commas")
     candidate = raw.strip()
     if parse_status == "markdown_fence":
         match = re.search(r"```(?:json)?\s*\n(.*?)\n\s*```", candidate, re.DOTALL)
@@ -167,6 +203,8 @@ def _parse_judge_response(raw: str, parse_status: str) -> dict:
             r'\{.*?"criteria_results"\s*:\s*\[.*?\].*?\}', candidate, re.DOTALL
         )
         for extracted in reversed(candidates):
+            if recover_commas:
+                extracted = _remove_json_trailing_commas(extracted)
             try:
                 payload = json.loads(extracted)
             except json.JSONDecodeError:
@@ -174,6 +212,8 @@ def _parse_judge_response(raw: str, parse_status: str) -> dict:
             if isinstance(payload, dict):
                 return payload
         raise VerificationError("Judge response schema could not be recovered")
+    if recover_commas:
+        candidate = _remove_json_trailing_commas(candidate)
     try:
         payload = json.loads(candidate)
     except json.JSONDecodeError as exc:
