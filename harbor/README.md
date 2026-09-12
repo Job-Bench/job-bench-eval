@@ -48,29 +48,15 @@ produces a warning with `./harbor/setup.sh`; a failed check is reported as
 unable to verify. Both are advisory and evaluation continues. Set
 `JOBBENCH_SKIP_HF_CHECK=1` for an offline or deliberately pinned run.
 
-Provide credentials for the selected agent/model provider and the separate
-JobBench judge, then run:
+Choose a native or custom agent with `-a` and a model with `-m`. Provide their
+credentials and the separate JobBench judge key. For example, using Terminus-2:
 
 ```bash
 export OPENAI_API_KEY="your_model_provider_key"
 export JUDGE_API_KEY="your_xai_key"
 ./harbor/eval.sh --split main \
-  -a opencode -m openai/gpt-5.4 --ak version=1.14.18
+  -a terminus-2 -m openai/gpt-5.4
 ```
-
-JobBench's official reference agent is OpenCode **v1.14.18**, pinned to commit
-`23fb5e0516c99ac04a1aa46c193efda2e1b9bb24` by the root
-[`setup_opencode.sh`](../setup_opencode.sh). The command above pins Harbor's
-npm-installed package to that release; without `version`, native Harbor installs
-the latest OpenCode. It does not use or copy edits from `../opencode/`.
-[`configs/opencode.yaml`](configs/opencode.yaml) supplies the same explicit pin:
-
-```bash
-./harbor/eval.sh --split main --config harbor/configs/opencode.yaml
-```
-
-Other native and custom agents remain available. Agent settings and execution
-defaults can differ between the repository runners and Harbor.
 
 The judge defaults to `grok-4.3` at `https://api.x.ai/v1`. Configure an alternative
 OpenAI-compatible judge with `JUDGE_MODEL` and `JUDGE_API_BASE`. Alternative judges
@@ -80,7 +66,7 @@ agent's normal configuration; the wrapper does not contain agent-specific runner
 ```bash
 # Inspect the generation and invocation without running an agent or judge.
 ./harbor/eval.sh --split easy --dry-run \
-  -a opencode -m openai/gpt-5.4 --ak version=1.14.18
+  -a terminus-2 -m openai/gpt-5.4
 
 # Use native Harbor options, such as concurrency and agent kwargs.
 ./harbor/eval.sh --split main -a terminus-2 -m your-provider/your-model \
@@ -91,7 +77,7 @@ agent's normal configuration; the wrapper does not contain agent-specific runner
 
 # Select a task or occupation before launching a larger run.
 ./harbor/eval.sh --split main -i 'main--biostatisticians--*' \
-  -a opencode -m openai/gpt-5.4 --ak version=1.14.18
+  -a terminus-2 -m openai/gpt-5.4
 ```
 
 The default split is `main`, the leaderboard split. Use `--split easy` for
@@ -117,6 +103,15 @@ limit and turn limit. Parameter names are agent/provider-specific: a CLI agent
 may use a native config file, and an agent may not expose every model parameter.
 Task timeouts are separate; use Harbor's timeout multiplier options to adjust
 the generated default execution budget.
+
+For OpenCode, [`configs/opencode.yaml`](configs/opencode.yaml) pins `v1.14.18`,
+matching [`setup_opencode.sh`](../setup_opencode.sh):
+
+```bash
+./harbor/eval.sh --split main --config harbor/configs/opencode.yaml
+```
+
+To select the same agent and version on the CLI, use `-a opencode --ak version=1.14.18`.
 
 Custom agents implement Harbor's `BaseAgent` or `BaseInstalledAgent` interface.
 Point the same wrapper at an importable class:

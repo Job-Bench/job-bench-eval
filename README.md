@@ -1,13 +1,11 @@
 # JobBench
 
-JobBench evaluates agentic CLI tools on professional tasks that workers want
-offloaded: reconciling data, cross-referencing records, and tracing citations.
-Tasks draw on Workbank's worker-desire survey across **35 professions**. Each
-includes source files and a weighted rubric for judging the agent's deliverables.
+JobBench evaluates agentic CLI tools (Claude Code, Codex CLI, OpenCode) on the tedious, multi-source pre-processing that experienced professionals most want offloaded: reconciling contradictory data, cross-referencing records, tracing citations. Tasks are sourced from Workbank, a worker-desire survey across 35 white-collar occupations, shifting the question from *what can be automated* to *what workers actually want automated*. Each task ships with a working directory and a weighted rubric; after the agent finishes, an LLM judge scores the deliverables against that rubric.
 
-[Website](https://job-bench.github.io/) ·
-[GitHub](https://github.com/Job-Bench/job-bench-eval/) ·
-[Hugging Face dataset](https://huggingface.co/datasets/JobBench/job-bench)
+- 🌐 [Project Website](https://job-bench.github.io/) - Learn more about JobBench
+- 🔧 [Github Repo](https://github.com/Job-Bench/job-bench-eval/) - Access the eval scirpt of JobBench
+- 🤗 HF Datasets - Find all JobBench datasets
+  - [JobBench (Main)](https://huggingface.co/datasets/JobBench/job-bench)
 
 The dataset has **65 main tasks** and **63 easy tasks**. Both evaluation routes
 default to `main`, the leaderboard split, and use **xAI `grok-4.3`** as the judge.
@@ -21,11 +19,6 @@ search and browser tools depend on the selected agent.
 | [Ordinary evaluation](eval/README.md) | Run a repository CLI runner, then the judge | `dataset/<split>/<profession>/taskN/` |
 | [Harbor evaluation](harbor/README.md) | Run an agent in an isolated environment, followed by verification | `harbor/jobs/` |
 
-Both routes support OpenCode and other agents. The official reference is
-**OpenCode v1.14.18**, pinned in [setup_opencode.sh](setup_opencode.sh).
-Harbor's matching npm release is pinned with `--ak version=1.14.18`;
-it does not include local checkout edits.
-
 Start from the repository root:
 
 ```bash
@@ -35,27 +28,35 @@ cd job-bench-eval
 
 ## Ordinary evaluation
 
-Requires `uv`, `jq`, `timeout`, Docker for the judge's Excel calculator, and,
-for OpenCode, `git` and `bun`.
+Supports **Claude Code, Codex CLI, and OpenCode**. Install and authenticate your
+chosen CLI using the [setup guide](eval/README.md#setup-and-authentication).
+Shared requirements are `uv`, `jq`, `timeout`, and Docker for Excel calculation.
 
 ```bash
-# Set up Python, the calculator, both dataset splits, and OpenCode.
+# Set up Python, the calculator, and both dataset splits.
 ./setup.sh
-./setup_opencode.sh
+```
 
-# Authenticate the example model provider and the separate xAI judge.
-export OPENAI_API_KEY="your_model_provider_key"
-export JUDGE_API_KEY="your_xai_key"
+Choose one runner:
 
-# Generate deliverables, then score outputs.
-SPLIT=main BENCHMARK_MODELS="openai/gpt-5.4|gpt-5-4" \
-  ./eval/run_benchmark_opencode.sh
-SPLIT=main EVAL_MODEL="gpt-5-4" uv run ./eval/run_judge.sh
+| Agent | Example command |
+|---|---|
+| Claude Code | `BENCHMARK_MODELS="claude-sonnet-4-6_cc" ./eval/run_benchmark_claude_code_cli.sh` |
+| Codex CLI | `BENCHMARK_MODELS="gpt-5.4" ./eval/run_benchmark_codex_cli.sh` |
+| OpenCode | `BENCHMARK_MODELS="openai/gpt-5.4\|gpt-5-4" ./eval/run_benchmark_opencode.sh` |
+
+For OpenCode, install `git` and `bun`, then run
+[`./setup_opencode.sh`](setup_opencode.sh), which pins `v1.14.18`.
+
+After generation, score the outputs:
+
+```bash
+JUDGE_API_KEY="your_xai_key" uv run ./eval/run_judge.sh
 ```
 
 Deliverables, trajectories, and scores are saved under each task in
-`model_output/`, `model_traj/`, and `eval_result/`. Claude Code and Codex CLI
-are also supported. See the [ordinary evaluation guide](eval/README.md) for
+`model_output/`, `model_traj/`, and `eval_result/`.
+See the [ordinary evaluation guide](eval/README.md) for
 authentication, model options, subsets, run labels, and judge configuration.
 Both evaluation routes read saved Notebook outputs and PPTX tables, and use the
 same pinned LibreOffice runtime for supported Excel formulas. Extraction records
@@ -63,8 +64,9 @@ identify the evidence and any limitations; see [judge evidence](eval/README.md#j
 
 ## Harbor evaluation
 
-Requires `uv` and Docker. Setup creates its own Python environment and task
-generation under `harbor/`.
+Supports Harbor's native agents and custom agents through the same interface.
+Requires `uv` and Docker. Select an agent with `-a` and a model with `-m`;
+the example below uses Terminus-2.
 
 ```bash
 # Set up Harbor and refresh both dataset splits.
@@ -76,31 +78,16 @@ export JUDGE_API_KEY="your_xai_key"
 
 # Generate deliverables and score them in one job.
 ./harbor/eval.sh --split main \
-  -a opencode -m openai/gpt-5.4 --ak version=1.14.18
+  -a terminus-2 -m openai/gpt-5.4
 ```
 
 Jobs, deliverables, trajectories, verifier reports, and source provenance are
-saved under `harbor/jobs/`. The [OpenCode config](harbor/configs/opencode.yaml)
-provides the same version pin. See the [Harbor guide](harbor/README.md) for
+saved under `harbor/jobs/`. See the [Harbor guide](harbor/README.md) for
 subsets, native configs, custom agents, and result details.
 
 ## Refreshing tasks and keeping results
 
-Evaluation checks the recorded dataset revision against HF `main` and warns if
-an update is available. The check is advisory; evaluation continues.
-
-Rerun the setup command for your chosen route to check the latest Hugging Face
-`main` revision. Every setup checks upstream and reuses unchanged cached content;
-it does not skip the check because local tasks already exist. Both splits are
-downloaded and validated before the new sources are activated.
-
-Ordinary setup updates managed source files, backs up overwritten local task
-edits, preserves evaluation history and local extras, and archives removed
-Hugging Face tasks outside the active splits. Harbor publishes a new task
-generation while retaining old generations and jobs. Either setup accepts
-`--revision <hf-commit>` to select a source version.
-
-Refreshing tasks does not rerun evaluation. Ordinary runners resume from
-existing model outputs, so use a new `RUN_LABEL` when evaluating changed tasks
-and use that unique run label as the judge's `EVAL_MODEL` filter. See
-[refreshing and rerunning](eval/README.md#refreshing-and-rerunning) for an example.
+Rerun `./setup.sh` or `./harbor/setup.sh` to refresh tasks from Hugging Face.
+Existing results are preserved, and evaluation warns when local tasks are stale.
+To evaluate updated tasks again, use a new ordinary `RUN_LABEL` or a new Harbor
+job. See [rerunning](eval/README.md#refreshing-and-rerunning) for details.

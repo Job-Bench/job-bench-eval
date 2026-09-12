@@ -1,5 +1,4 @@
-# Native Harbor 0.22.0 config for the reference OpenCode release.
-# The version matches setup_opencode.sh; npm installs exclude local source edits.
+# OpenCode example pinned to the same version as setup_opencode.sh.
 n_attempts: 1
 n_concurrent_trials: 4
 

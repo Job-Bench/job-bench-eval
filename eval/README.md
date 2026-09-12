@@ -17,8 +17,8 @@ spreadsheet calculator, and both dataset splits:
 Setup builds the pinned calculation image once; later calls reuse Docker's build
 cache. To refresh task data without preparing a judge runtime, use
 `JOBBENCH_DATASET_ONLY=1 ./setup.sh`. Prepare just the calculator with
-`./eval/setup_judge.sh`. Ordinary agent runners still run as before; only Excel
-formula calculation uses this container.
+`./eval/setup_judge.sh`. Ordinary agent runners execute locally; Excel formula
+calculation uses this container.
 
 Setup uses the raw task files from
 [`JobBench/job-bench`](https://huggingface.co/datasets/JobBench/job-bench).
@@ -29,57 +29,6 @@ also have withheld search references in `files_required_to_search/`.
 
 Both runners and judge default to `SPLIT=main`, the leaderboard split. Set
 `SPLIT=easy` explicitly for simplified tasks.
-
-### OpenCode (reference agent)
-
-Install `git` and `bun`, then run:
-
-```bash
-./setup_opencode.sh
-```
-
-The official reference is OpenCode **v1.14.18**, commit
-`23fb5e0516c99ac04a1aa46c193efda2e1b9bb24`. The pin is the `OPENCODE_COMMIT`
-default in [setup_opencode.sh](../setup_opencode.sh). The default checkout is
-`./opencode`; set `OPENCODE_DIR` to use another location or `OPENCODE_COMMIT`
-to test another revision.
-
-Configure provider credentials using environment variables such as
-`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, or `XAI_API_KEY`, or use interactive login
-for OAuth or saved API keys:
-
-```bash
-bun run --cwd opencode/packages/opencode --conditions=browser src/index.ts auth login
-bun run --cwd opencode/packages/opencode --conditions=browser src/index.ts auth list
-```
-
-Adjust the path above if you set `OPENCODE_DIR`. Credentials must match the
-provider in the selected model ID.
-
-Pass space-separated `model_id|short_name` pairs. The short name labels the
-output directories; omitting it uses the model ID with `/` replaced by `_`
-and `.` replaced by `-`.
-
-```bash
-BENCHMARK_MODELS="anthropic/claude-sonnet-4-6|sonnet-4-6 openai/gpt-5.4|gpt-5-4" \
-  ./eval/run_benchmark_opencode.sh
-```
-
-Models outside OpenCode's catalog must be declared in `OPENCODE_CONFIG_CONTENT`.
-Give them a suitable `limit.context`: zero disables auto-compaction, so the
-runner fills missing or zero values with `OPENCODE_DEFAULT_CONTEXT` (1,000,000).
-Leave `limit.output` unset unless you know the required budget; reasoning tokens
-also count toward that limit.
-
-The source pin identifies the base revision. Record local provider/model patches
-separately with your run results:
-
-```bash
-git -C "${OPENCODE_DIR:-./opencode}" rev-parse HEAD
-git -C "${OPENCODE_DIR:-./opencode}" describe --tags --exact-match
-git -C "${OPENCODE_DIR:-./opencode}" status --short
-git -C "${OPENCODE_DIR:-./opencode}" diff
-```
 
 ### Claude Code
 
@@ -108,6 +57,45 @@ export CODEX_API_KEY="sk-your-key"
 BENCHMARK_MODELS="your-model" ./eval/run_benchmark_codex_cli.sh
 ```
 
+### OpenCode
+
+Install `git` and `bun`, then run:
+
+```bash
+./setup_opencode.sh
+```
+
+[setup_opencode.sh](../setup_opencode.sh) pins OpenCode to `v1.14.18` through
+`OPENCODE_COMMIT`. It installs into `./opencode`; use `OPENCODE_DIR` for another
+location or `OPENCODE_COMMIT` for another revision.
+
+Configure provider credentials using environment variables such as
+`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, or `XAI_API_KEY`, or use interactive login
+for OAuth or saved API keys:
+
+```bash
+bun run --cwd opencode/packages/opencode --conditions=browser src/index.ts auth login
+bun run --cwd opencode/packages/opencode --conditions=browser src/index.ts auth list
+```
+
+Adjust the path above if you set `OPENCODE_DIR`. Credentials must match the
+provider in the selected model ID.
+
+Pass space-separated `model_id|short_name` pairs. The short name labels the
+output directories; omitting it uses the model ID with `/` replaced by `_`
+and `.` replaced by `-`.
+
+```bash
+BENCHMARK_MODELS="anthropic/claude-sonnet-4-6|sonnet-4-6 openai/gpt-5.4|gpt-5-4" \
+  ./eval/run_benchmark_opencode.sh
+```
+
+Models outside OpenCode's catalog must be declared in `OPENCODE_CONFIG_CONTENT`.
+Give them a suitable `limit.context`: zero disables auto-compaction, so the
+runner fills missing or zero values with `OPENCODE_DEFAULT_CONTEXT` (1,000,000).
+Leave `limit.output` unset unless you know the required budget; reasoning tokens
+also count toward that limit.
+
 ## Runner options and subsets
 
 | Variable | Default | Purpose |
@@ -125,7 +113,7 @@ for judging:
 
 ```bash
 TASKS_BASE_DIR=/path/to/my_subset \
-  BENCHMARK_MODELS="openai/gpt-5.4|gpt-5-4" ./eval/run_benchmark_opencode.sh
+  BENCHMARK_MODELS="gpt-5.4" ./eval/run_benchmark_codex_cli.sh
 TARGET_DIR=/path/to/my_subset EVAL_MODEL="gpt-5-4" \
   JUDGE_API_KEY="your_xai_key" uv run ./eval/run_judge.sh
 ```
@@ -133,7 +121,7 @@ TARGET_DIR=/path/to/my_subset EVAL_MODEL="gpt-5-4" \
 To use the easy split:
 
 ```bash
-SPLIT=easy BENCHMARK_MODELS="openai/gpt-5.4|gpt-5-4" ./eval/run_benchmark_opencode.sh
+SPLIT=easy BENCHMARK_MODELS="gpt-5.4" ./eval/run_benchmark_codex_cli.sh
 SPLIT=easy EVAL_MODEL="gpt-5-4" JUDGE_API_KEY="your_xai_key" uv run ./eval/run_judge.sh
 ```
 
@@ -189,8 +177,8 @@ label; check the selected directories in the judge log.
 
 Notebook extraction reads saved sources, streams, errors, and text, Markdown,
 HTML/table, LaTeX and JSON outputs without executing cells. PowerPoint extraction
-includes grouped text and table grids, preserving merged-cell origins. Image
-handling is unchanged: matching visual rubrics receive up to eight deduplicated
+includes grouped text and table grids, preserving merged-cell origins.
+Matching visual rubrics receive up to eight deduplicated
 standalone, DOCX or notebook-output raster images.
 
 For XLSX, the judge preserves cell positions, formulas and saved caches, and
@@ -269,8 +257,8 @@ rubrics. Use a new, unique `RUN_LABEL` to evaluate a new dataset version while
 retaining the previous run, then use that run label as the judge filter:
 
 ```bash
-RUN_LABEL="refresh-20260911" BENCHMARK_MODELS="openai/gpt-5.4|gpt-5-4" \
-  ./eval/run_benchmark_opencode.sh
+RUN_LABEL="refresh-20260911" BENCHMARK_MODELS="gpt-5.4" \
+  ./eval/run_benchmark_codex_cli.sh
 EVAL_MODEL="refresh-20260911" JUDGE_API_KEY="your_xai_key" \
   uv run ./eval/run_judge.sh
 ```
