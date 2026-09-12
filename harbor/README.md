@@ -214,13 +214,3 @@ Source and judge pins make the task package traceable. Live websites, model
 providers and different agents' execution settings can still change outcomes.
 The conversion does not include gold solutions, so the Oracle agent is not an
 available correctness baseline.
-
-## Implementation and validation
-
-```bash
-uv sync --locked --inexact --project harbor --group test
-PYTHONPATH=harbor harbor/.venv/bin/python -m unittest discover -s harbor/tests -v
-```
-
-These checks use local fixtures without model-provider calls and cover task
-conversion, agent execution, and verification.
