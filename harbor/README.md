@@ -167,9 +167,12 @@ not automatically added to the submission.
 ## Scoring and records
 
 Each task has a separate verifier image containing a byte-identical copy of the
-repository's `eval/judge.py`, its rubric, and a small wrapper. Judge credentials
-are passed to the verifier only. The original successful scoring/extraction
-behavior is preserved:
+repository's `eval/judge.py`, the shared `eval/jobbench_eval` extraction helpers,
+its rubric, and a small wrapper. The image includes the same pinned LibreOffice
+runtime as ordinary evaluation; the calculation subprocess disables networking
+and receives no judge credentials. Judge credentials are passed to the verifier
+only. Both routes use the same extraction logic, and the weighted scoring formula
+remains:
 
 ```text
 reward = round(sum(passed rubric weights) / sum(all rubric weights), 4)
@@ -181,6 +184,9 @@ and diagnostic logs are retained with the Harbor trial. An empty submission
 receives zero without calling the judge. Configuration, API, parsing, and unsafe
 artifact errors are reported as failed verification without a valid reward,
 so they can be distinguished from a legitimately unsuccessful submission.
+`judge-details.extraction.json` retains extracted text, input hashes, formula
+evidence and calculation/truncation diagnostics. See
+[judge evidence](../eval/README.md#judge-evidence) for supported formats and limits.
 
 Jobs and collected deliverables default to `harbor/jobs/`. Each evaluation pins
 one immutable generated task directory and records its source revision, judge
@@ -199,6 +205,10 @@ already in progress. They are not automatically pruned. Preserve referenced
 generations while jobs are running or when replaying a saved job configuration.
 Generated files are managed artifacts: edit HF sources or the adapter/templates,
 then rerun setup, rather than editing `harbor/tasks/` in place.
+Helper and calculator-runtime changes also produce a new generation even when
+HF task sources have not changed. Run `./harbor/setup.sh` after updating this code;
+the generated verifier builds its own calculation environment, so the ordinary
+route's calculator setup is not required for Harbor.
 
 Source and judge pins make the task package traceable. Live websites, model
 providers and different agents' execution settings can still change outcomes.

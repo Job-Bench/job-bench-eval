@@ -35,10 +35,11 @@ cd job-bench-eval
 
 ## Ordinary evaluation
 
-Requires `uv`, `jq`, `timeout`, and, for OpenCode, `git` and `bun`.
+Requires `uv`, `jq`, `timeout`, Docker for the judge's Excel calculator, and,
+for OpenCode, `git` and `bun`.
 
 ```bash
-# Set up Python, refresh both dataset splits, and prepare OpenCode.
+# Set up Python, the calculator, both dataset splits, and OpenCode.
 ./setup.sh
 ./setup_opencode.sh
 
@@ -56,6 +57,9 @@ Deliverables, trajectories, and scores are saved under each task in
 `model_output/`, `model_traj/`, and `eval_result/`. Claude Code and Codex CLI
 are also supported. See the [ordinary evaluation guide](eval/README.md) for
 authentication, model options, subsets, run labels, and judge configuration.
+Both evaluation routes read saved Notebook outputs and PPTX tables, and use the
+same pinned LibreOffice runtime for supported Excel formulas. Extraction records
+identify the evidence and any limitations; see [judge evidence](eval/README.md#judge-evidence).
 
 ## Harbor evaluation
 

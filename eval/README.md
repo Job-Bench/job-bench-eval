@@ -7,11 +7,18 @@ in a separate step. For the other route, see [JobBench with Harbor](../harbor/RE
 
 ## Setup and authentication
 
-Install `uv`, `jq`, and `timeout`, then prepare Python and both dataset splits:
+Install `uv`, `jq`, `timeout`, and Docker, then prepare Python, the judge's
+spreadsheet calculator, and both dataset splits:
 
 ```bash
 ./setup.sh
 ```
+
+Setup builds the pinned calculation image once; later calls reuse Docker's build
+cache. To refresh task data without preparing a judge runtime, use
+`JOBBENCH_DATASET_ONLY=1 ./setup.sh`. Prepare just the calculator with
+`./eval/setup_judge.sh`. Ordinary agent runners still run as before; only Excel
+formula calculation uses this container.
 
 Setup uses the raw task files from
 [`JobBench/job-bench`](https://huggingface.co/datasets/JobBench/job-bench).
@@ -134,7 +141,8 @@ SPLIT=easy EVAL_MODEL="gpt-5-4" JUDGE_API_KEY="your_xai_key" uv run ./eval/run_j
 
 The judge extracts text from deliverables such as spreadsheets, documents,
 PDFs, notebooks, and databases, then sends one chat completion per rubric.
-Extracted text is capped at 200,000 characters per file. Rubrics mentioning
+Extracted text is capped at 200,000 characters per file, except SQLite, which
+uses its existing row limit. Rubrics mentioning
 visual features such as plots or figures also attach images from the output
 directory, so those rubrics need a judge that accepts multimodal input.
 
@@ -176,6 +184,54 @@ See [run_judge.sh](run_judge.sh) for worker, timeout, retry, and multi-judge
 settings. `EVAL_MODEL` matches when either the filter or directory label contains
 the other. A full output label can also select a shorter base label or a longer
 label; check the selected directories in the judge log.
+
+## Judge evidence
+
+Notebook extraction reads saved sources, streams, errors, and text, Markdown,
+HTML/table, LaTeX and JSON outputs without executing cells. PowerPoint extraction
+includes grouped text and table grids, preserving merged-cell origins. Image
+handling is unchanged: matching visual rubrics receive up to eight deduplicated
+standalone, DOCX or notebook-output raster images.
+
+For XLSX, the judge preserves cell positions, formulas and saved caches, and
+explicitly recalculates supported formulas with LibreOffice **24.2.7.2**, Ubuntu
+package `4:24.2.7-0ubuntu0.24.04.6`. The base images and the Ubuntu package snapshot
+are pinned in [calc-runtime/Dockerfile](calc-runtime/Dockerfile). Formula caches
+may be absent, stale, or placeholder zeros, so calculation is not limited to
+empty caches. Original submissions are never saved or modified by the calculator.
+
+The calculator has no model credentials, disables networking and macros, and
+does not refresh external links. Workbooks with external links, volatile or
+environment-dependent functions, macros, or unsupported formula structures
+(including array/data-table formulas) retain
+their saved evidence with an explicit "not recalculated" warning. Legacy XLS
+provides saved values only. Calculation errors remain visible beside the formula;
+an unavailable or timed-out runtime is an evaluation error, not a zero score.
+
+Each new details report has a neighboring `*.extraction.json` containing the text
+sent to the judge, full Excel formula/cache/calculation records, input hashes,
+implementation identity, and truncation diagnostics. Large workbooks use compact
+value grids and exact formula ranges, with space shared across sheets and omitted
+rows explicitly marked. Inspect evidence without a
+model or judge key:
+
+```bash
+.venv/bin/python eval/judge.py --output-dir /path/to/model_output/run \
+  --extract-only --extraction-file /tmp/jobbench-extraction.json
+```
+
+Changing the extractor can change scores. Existing complete reports are preserved
+and warn if their implementation differs; incompatible partial reports cannot be
+resumed. Use a fresh `JUDGE_RUN_LABEL` to score existing deliverables again while
+keeping earlier scores:
+
+```bash
+EVAL_MODEL="gpt-5-4" JUDGE_RUN_LABEL="extraction-v2" \
+  JUDGE_API_KEY="your_xai_key" uv run ./eval/run_judge.sh
+```
+
+This creates `grok-4-3_extraction-v2_judge.json` beside the original report. Reuse
+the label only to resume the same inputs and judge implementation.
 
 ## Refreshing and rerunning
 
