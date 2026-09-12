@@ -21,6 +21,7 @@ import hashlib
 import json
 import os
 import re
+import sys
 import tempfile
 import time
 import traceback
@@ -29,6 +30,13 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 from zipfile import BadZipFile, ZipFile
+
+
+# Also support callers loading this file through importlib rather than the CLI.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from jobbench_eval.calc import ExtractionError
+from jobbench_eval.excel import read_excel
+from jobbench_eval.rich_text import read_notebook, read_presentation
 
 
 MAX_CHARS_PER_FILE = 200_000
@@ -53,7 +61,7 @@ def _read_text(path: Path) -> str:
         return f"[ERROR: Failed to read text file: {path.name}: {exc}]"
 
 
-def convert_file_to_text(path: Path) -> str:
+def convert_file_to_text(path: Path, diagnostics: list | None = None) -> str:
     ext = path.suffix.lower().lstrip(".")
 
     if ext in (
@@ -65,18 +73,11 @@ def convert_file_to_text(path: Path) -> str:
 
     if ext in ("xlsx", "xls"):
         try:
-            import pandas as pd
-
-            xl = pd.ExcelFile(str(path))
-            parts = []
-            for sheet in xl.sheet_names:
-                df = pd.read_excel(xl, sheet_name=sheet)
-                parts.append(f"=== Sheet: {sheet} ===\n{df.to_csv(index=False)}")
-            return "\n".join(parts)
-        except ImportError:
-            return f"[ERROR: pandas/openpyxl not available for {path.name}]"
+            return read_excel(path, diagnostics=diagnostics)
+        except ExtractionError:
+            raise
         except Exception as exc:
-            return f"[ERROR: Failed to read Excel {path.name}: {exc}]"
+            raise ExtractionError(f"Failed to read Excel {path.name}: {exc}") from exc
 
     if ext == "docx":
         try:
@@ -142,35 +143,10 @@ def convert_file_to_text(path: Path) -> str:
             return f"[ERROR: Failed to read SQLite {path.name}: {exc}]"
 
     if ext == "pptx":
-        try:
-            from pptx import Presentation
-
-            prs = Presentation(str(path))
-            parts = []
-            for idx, slide in enumerate(prs.slides):
-                parts.append(f"=== Slide {idx + 1} ===")
-                for shape in slide.shapes:
-                    if hasattr(shape, "text") and shape.text:
-                        parts.append(shape.text)
-            return "\n".join(parts)
-        except ImportError:
-            return f"[ERROR: python-pptx not available for {path.name}]"
-        except Exception as exc:
-            return f"[ERROR: Failed to read PowerPoint {path.name}: {exc}]"
+        return read_presentation(path)
 
     if ext == "ipynb":
-        try:
-            nb = json.loads(path.read_text(encoding="utf-8"))
-            parts = []
-            for cell in nb.get("cells", []):
-                parts.append(f"=== {cell['cell_type']} ===")
-                parts.append("".join(cell.get("source", [])))
-                for output in cell.get("outputs", []):
-                    if "text" in output:
-                        parts.append("".join(output["text"]))
-            return "\n".join(parts)
-        except Exception as exc:
-            return f"[ERROR: Failed to read notebook {path.name}: {exc}]"
+        return read_notebook(path)
 
     if ext in ("png", "jpg", "jpeg", "gif", "svg", "bmp"):
         return f"[Image file: {path.name} — cannot extract text content]"
@@ -178,16 +154,40 @@ def convert_file_to_text(path: Path) -> str:
     return f"[Binary or unsupported file type: {ext} — {path.name}]"
 
 
-def extract_all_file_contents(output_dir: Path) -> str:
+def judge_implementation() -> dict:
+    root = Path(__file__).resolve().parent
+    paths = [root / "judge.py", root / "calc-runtime" / "Dockerfile"]
+    paths.extend(sorted((root / "jobbench_eval").glob("*.py")))
+    digest = hashlib.sha256()
+    for path in paths:
+        digest.update(path.relative_to(root).as_posix().encode())
+        digest.update(b"\0")
+        digest.update(path.read_bytes())
+        digest.update(b"\0")
+    return {"extraction_schema": 2, "sha256": digest.hexdigest()}
+
+
+def extract_all_file_contents(output_dir: Path, diagnostics: dict | None = None) -> str:
     parts = []
     for file_path in sorted(output_dir.rglob("*")):
         if not file_path.is_file():
             continue
-        content = convert_file_to_text(file_path)
+        record = {"path": file_path.relative_to(output_dir).as_posix(),
+                  "sha256": hashlib.sha256(file_path.read_bytes()).hexdigest(), "details": []}
+        if diagnostics is not None:
+            diagnostics.setdefault("files", []).append(record)
+        try:
+            content = convert_file_to_text(file_path, record["details"])
+        except ExtractionError as exc:
+            record["error"] = str(exc)
+            raise ExtractionError(f"{record['path']}: {exc}") from exc
         ext = file_path.suffix.lower().lstrip(".")
-        if ext not in SQLITE_EXTS and len(content) > MAX_CHARS_PER_FILE:
+        record["characters"] = len(content)
+        over_limit = ext not in SQLITE_EXTS and len(content) > MAX_CHARS_PER_FILE
+        record["truncated"] = over_limit or any(item.get("text_truncated") for item in record["details"])
+        if over_limit:
             content = content[:MAX_CHARS_PER_FILE] + f"\n... [Content truncated at {MAX_CHARS_PER_FILE} characters]"
-        parts.append(f"=== FILE: {file_path.name} ===\n{content}\n")
+        parts.append(f"=== FILE: {record['path']} ===\n{content}\n")
     return "\n".join(parts)
 
 
@@ -391,6 +391,7 @@ def build_details_report(
     return {
         "evaluated_model": evaluated_model,
         "judge_model": judge_model,
+        "judge_implementation": judge_implementation(),
         "timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "total_score": total_score,
         "max_score": max_score,
@@ -401,7 +402,7 @@ def build_details_report(
     }
 
 
-def write_json(path: Path, payload: dict) -> None:
+def write_json(path: Path, payload: dict, *, mode: int | None = None) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(
         "w",
@@ -414,6 +415,8 @@ def write_json(path: Path, payload: dict) -> None:
         json.dump(payload, handle, ensure_ascii=False, indent=2)
         handle.write("\n")
         tmp_path = Path(handle.name)
+    if mode is not None:
+        tmp_path.chmod(mode)
     os.replace(tmp_path, path)
 
 
@@ -795,9 +798,14 @@ def write_detail_log(
 
 
 def main() -> None:
+    if sys.argv[1:] == ["--print-implementation"]:
+        print(json.dumps(judge_implementation()))
+        return
     parser = argparse.ArgumentParser(description="JobBench LLM judge")
     parser.add_argument("--output-dir", required=True, help="Directory with model output files")
-    parser.add_argument("--rubrics-file", required=True, help="Path to RUBRICS.json")
+    parser.add_argument("--rubrics-file", help="Path to RUBRICS.json")
+    parser.add_argument("--extract-only", action="store_true", help="Prepare saved evidence without calling a judge")
+    parser.add_argument("--extraction-file", help="Write extracted text, formula evidence and diagnostics as JSON")
     parser.add_argument("--result-file", default=None, help="Optional path for reward JSON")
     parser.add_argument("--details-file", default=None, help="Where to write detailed results JSON")
     parser.add_argument("--judge-model", default=os.environ.get("JUDGE_MODEL", ""))
@@ -813,7 +821,9 @@ def main() -> None:
     args = parser.parse_args()
 
     output_dir = Path(args.output_dir)
-    rubrics_file = Path(args.rubrics_file)
+    if not args.extract_only and not args.rubrics_file:
+        parser.error("--rubrics-file is required unless --extract-only is used")
+    rubrics_file = Path(args.rubrics_file) if args.rubrics_file else None
     result_file = Path(args.result_file) if args.result_file else None
     details_file = Path(args.details_file) if args.details_file else None
     lock_file = Path(args.lock_file) if args.lock_file else None
@@ -821,8 +831,47 @@ def main() -> None:
     if lock_file is None and details_file is not None:
         lock_file = details_file.with_name(f".{details_file.stem}.lock")
 
+    extraction_file = Path(args.extraction_file) if args.extraction_file else (
+        details_file.with_suffix(".extraction.json") if details_file else None)
+    extraction = {"implementation": judge_implementation(), "files": [], "status": "pending"}
+
+    if (output_dir.exists() or args.extract_only) and not output_dir.is_dir():
+        print("[ERROR] --output-dir must name a directory.", file=sys.stderr)
+        raise SystemExit(2)
+    for destination in (result_file, details_file, extraction_file):
+        if destination and destination.resolve().is_relative_to(output_dir.resolve()):
+            print("[ERROR] Report destinations must be outside the submitted output directory.", file=sys.stderr)
+            raise SystemExit(2)
+    if not args.extract_only and result_file and result_file.exists():
+        print("[ERROR] --result-file already exists; preserve it and select a fresh result path.", file=sys.stderr)
+        raise SystemExit(2)
+
+    # Preserve prior runs and never mix rubric results from different extractors.
+    # A caller explicitly chooses a fresh details path/result label to rejudge.
+    existing = load_existing_details(details_file)
+    preserve_saved_scores = bool(existing and existing.get("rubrics"))
+    if not args.extract_only and details_file and details_file.exists() and existing is None:
+        print("[ERROR] Existing details are unreadable; preserve them and select a new --details-file "
+              "or JUDGE_RUN_LABEL.", file=sys.stderr)
+        raise SystemExit(2)
+    if not args.extract_only and existing and existing.get("rubrics"):
+        if existing.get("judge_implementation") != judge_implementation():
+            print("[ERROR] Existing scores use a different or unrecorded judge implementation. "
+                  "Keep them and select a new --details-file or JUDGE_RUN_LABEL.", file=sys.stderr)
+            raise SystemExit(2)
+
     try:
+        if args.extract_only:
+            extraction["text"] = extract_all_file_contents(output_dir, extraction)
+            extraction["status"] = "complete"
+            if extraction_file:
+                write_json(extraction_file, extraction, mode=0o644)
+            else:
+                print(json.dumps(extraction, ensure_ascii=False, indent=2))
+            return
         if not rubrics_file.exists():
+            if preserve_saved_scores:
+                raise ValueError(f"Rubrics file not found: {rubrics_file}")
             write_outputs(
                 result_file,
                 build_reward(build_scorecard([])),
@@ -834,6 +883,8 @@ def main() -> None:
         rubrics_data = json.loads(rubrics_file.read_text(encoding="utf-8"))
         rubrics = rubrics_data.get("rubrics") or rubrics_data.get("evaluation_rubrics") or []
         if not rubrics:
+            if preserve_saved_scores:
+                raise ValueError(f"Rubrics file contains no rubrics: {rubrics_file}")
             write_outputs(
                 result_file,
                 build_reward(build_scorecard([])),
@@ -851,7 +902,10 @@ def main() -> None:
                 for idx, rubric in enumerate(rubrics)
             ]
         else:
-            file_contents = extract_all_file_contents(output_dir)
+            file_contents = extract_all_file_contents(output_dir, extraction)
+            extraction.update(text=file_contents, status="complete")
+            if extraction_file:
+                write_json(extraction_file, extraction, mode=0o644)
             if not file_contents.strip():
                 results = [
                     build_failed_rubric_result(idx, rubric, "Output files were unreadable or empty after conversion.")
@@ -934,7 +988,23 @@ def main() -> None:
             total_count=total_rubric_count,
         )
         write_outputs(result_file, reward, details_file, details)
+    except ExtractionError as exc:
+        extraction.update(status="error", error=str(exc))
+        if extraction_file:
+            write_json(extraction_file, extraction, mode=0o644)
+        if details_file and not args.extract_only and not preserve_saved_scores:
+            write_json(details_file, {"error_type": "extraction_error", "error": str(exc),
+                                      "judge_implementation": judge_implementation()})
+        print(f"[ERROR] Evidence extraction failed: {exc}", file=sys.stderr)
+        raise SystemExit(2)
     except Exception as exc:
+        if args.extract_only or preserve_saved_scores:
+            extraction.update(status="error", error=str(exc))
+            if extraction_file:
+                write_json(extraction_file, extraction, mode=0o644)
+            message = "Evidence extraction failed" if args.extract_only else "Judge failed; saved rubric results preserved"
+            print(f"[ERROR] {message}: {exc}", file=sys.stderr)
+            raise SystemExit(2)
         fallback_reward = build_reward(build_scorecard([]))
         write_outputs(
             result_file,

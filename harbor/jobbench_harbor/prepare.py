@@ -17,9 +17,10 @@ from pathlib import PurePosixPath
 from .hf_source import fetch_snapshot
 
 try:
-    from .render import render_task
+    from .render import render_task, verifier_inputs
 except ImportError:  # The renderer is developed independently.
     render_task = None
+    verifier_inputs = None
 
 
 class SourceError(ValueError):
@@ -279,6 +280,16 @@ def _rendering_hash(root: Path) -> str:
         digest.update(b"\0")
         digest.update(path.read_bytes())
         digest.update(b"\0")
+    if verifier_inputs is not None:
+        try:
+            shared_inputs = verifier_inputs()
+        except ValueError as exc:
+            raise SourceError(str(exc)) from exc
+        for relative, path in shared_inputs:
+            digest.update(f"eval/{relative}".encode("utf-8"))
+            digest.update(b"\0")
+            digest.update(path.read_bytes())
+            digest.update(b"\0")
     return digest.hexdigest()
 
 

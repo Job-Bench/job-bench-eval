@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import subprocess
 import sys
 import tempfile
 import tomllib
@@ -160,6 +162,50 @@ class RenderTaskTests(unittest.TestCase):
         self.assertTrue((tests / "Dockerfile").is_file())
         self.assertNotIn("RUBRICS", (tests / "Dockerfile").read_text())
         self.assertNotIn("judge.py", (self.destination / "environment" / "Dockerfile").read_text())
+
+    def test_generated_judge_can_import_copied_helpers_outside_repository(self) -> None:
+        self.judge.write_text(
+            "from pathlib import Path\n"
+            "import sys\n"
+            "from jobbench_eval.rich_text import read_notebook\n"
+            "print(read_notebook(Path(sys.argv[1])))\n",
+            encoding="utf-8",
+        )
+        artifact = self.base / "result.ipynb"
+        artifact.write_text(json.dumps({"cells": [{
+            "cell_type": "code", "source": "answer", "outputs": [{
+                "output_type": "execute_result", "data": {"text/plain": "Copied helper result: 812"},
+            }],
+        }]}), encoding="utf-8")
+
+        self.render()
+        tests = self.destination / "tests"
+        result = subprocess.run(
+            [sys.executable, "-B", str(tests / "judge.py"), str(artifact)],
+            cwd=self.base, capture_output=True, text=True, timeout=10,
+            env={**os.environ, "PYTHONPATH": ""},
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Copied helper result: 812", result.stdout)
+        helpers = HARBOR_ROOT.parent / "eval" / "jobbench_eval"
+        for source in helpers.rglob("*.py"):
+            self.assertEqual((tests / "jobbench_eval" / source.relative_to(helpers)).read_bytes(), source.read_bytes())
+        self.assertFalse(any((tests / "jobbench_eval").rglob("*.pyc")))
+        self.assertFalse((self.destination / "environment" / "jobbench_eval").exists())
+
+    def test_verifier_build_uses_common_calc_runtime_and_system_python_venv(self) -> None:
+        self.render()
+
+        tests = self.destination / "tests"
+        runtime = HARBOR_ROOT.parent / "eval" / "calc-runtime" / "Dockerfile"
+        self.assertEqual((tests / "calc-runtime" / "Dockerfile").read_bytes(), runtime.read_bytes())
+        dockerfile = (tests / "Dockerfile").read_text()
+        self.assertTrue(dockerfile.startswith(runtime.read_text().rstrip() + "\n"))
+        self.assertEqual(sum(line.startswith("FROM ") for line in dockerfile.splitlines()), 1)
+        self.assertIn("/usr/bin/python3 -m venv /opt/jobbench-venv", dockerfile)
+        self.assertIn('PATH="/opt/jobbench-venv/bin:', dockerfile)
+        self.assertFalse((self.destination / "environment" / "calc-runtime").exists())
 
     def test_provenance_hashes_source_files_without_exposing_search_bytes(self) -> None:
         record = self.render()

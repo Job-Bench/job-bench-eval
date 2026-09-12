@@ -14,6 +14,8 @@ from pathlib import Path
 HARBOR_ROOT = Path(__file__).resolve().parents[1]
 TEMPLATES = HARBOR_ROOT / "templates"
 VERIFY_PATH = HARBOR_ROOT / "runtime" / "verify.py"
+JUDGE_HELPERS = HARBOR_ROOT.parent / "eval" / "jobbench_eval"
+CALC_RUNTIME_DOCKERFILE = HARBOR_ROOT.parent / "eval" / "calc-runtime" / "Dockerfile"
 SAFE_ID = re.compile(r"^[A-Za-z0-9._-]+$")
 
 INSTRUCTION = """=== TASK FOLDER ===
@@ -86,6 +88,21 @@ def _validate_tree(root: Path) -> None:
 
 def _copy_template(name: str, destination: Path) -> None:
     shutil.copyfile(TEMPLATES / name, destination)
+
+
+def verifier_inputs() -> list[tuple[str, Path]]:
+    """Return shared verifier files with stable paths inside generated tests/."""
+    _validate_tree(JUDGE_HELPERS)
+    if CALC_RUNTIME_DOCKERFILE.is_symlink() or not CALC_RUNTIME_DOCKERFILE.is_file():
+        raise ValueError(f"Missing or invalid calculation runtime: {CALC_RUNTIME_DOCKERFILE}")
+    selected = [("calc-runtime/Dockerfile", CALC_RUNTIME_DOCKERFILE)]
+    for source in sorted(JUDGE_HELPERS.rglob("*")):
+        relative = source.relative_to(JUDGE_HELPERS)
+        if "__pycache__" in relative.parts or source.suffix in {".pyc", ".pyo"}:
+            continue
+        if source.is_file():
+            selected.append((f"jobbench_eval/{relative.as_posix()}", source))
+    return selected
 
 
 def _toml_string(value: str) -> str:
@@ -194,7 +211,15 @@ def render_task(
     shutil.copytree(task_folder, environment / "task_folder", copy_function=shutil.copyfile)
     _copy_template("environment.Dockerfile", environment / "Dockerfile")
     _copy_template("environment-requirements.txt", environment / "requirements.txt")
-    _copy_template("verifier.Dockerfile", tests / "Dockerfile")
+    for relative, source in verifier_inputs():
+        copied = tests / relative
+        copied.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source, copied)
+    shared_runtime = (tests / "calc-runtime" / "Dockerfile").read_text(encoding="utf-8")
+    verifier_suffix = (TEMPLATES / "verifier.Dockerfile").read_text(encoding="utf-8")
+    (tests / "Dockerfile").write_text(
+        shared_runtime.rstrip() + "\n\n" + verifier_suffix, encoding="utf-8"
+    )
     _copy_template("verifier-requirements.txt", tests / "requirements.txt")
     _copy_template("test.sh", tests / "test.sh")
     (tests / "test.sh").chmod(0o755)

@@ -12,6 +12,8 @@ import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+from jobbench_harbor.render import verifier_inputs
+
 
 HARBOR_ROOT = Path(__file__).resolve().parents[1]
 VERIFY = HARBOR_ROOT / "runtime" / "verify.py"
@@ -103,6 +105,10 @@ class VerifierTests(unittest.TestCase):
         self.tests = self.base / "tests"
         self.tests.mkdir()
         shutil.copyfile(ORIGINAL_JUDGE, self.tests / "judge.py")
+        for relative, source in verifier_inputs():
+            target = self.tests / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(source, target)
         self.logs = self.base / "logs"
         JudgeHandler.response_mode = "valid"
         JudgeHandler.requests = []
@@ -171,6 +177,42 @@ class VerifierTests(unittest.TestCase):
             self.assertIn("API Exit Code: 0", content)
         report = json.loads((self.logs / "verification.json").read_text())
         self.assertEqual(report["status"], "ok")
+
+    def test_saved_notebook_and_presentation_table_reach_judge_request(self):
+        from pptx import Presentation
+        from pptx.util import Inches
+        (self.output / "saved.ipynb").write_text(json.dumps({"cells": [{"cell_type": "code",
+            "source": "df", "outputs": [{"output_type": "execute_result",
+            "data": {"text/plain": "NOTEBOOK_REVENUE_9876"}}]}]}))
+        presentation = Presentation()
+        slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+        table = slide.shapes.add_table(1, 1, Inches(0), Inches(0), Inches(3), Inches(1)).table
+        table.cell(0, 0).text = "PPTX_TABLE_TOTAL_1234"
+        presentation.save(self.output / "slides.pptx")
+        self.write_rubrics([{"rubric": "pass-rubric", "weight": 1, "criterion": ["correct"]}])
+        result = self.run_verifier()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        content = json.dumps(JudgeHandler.requests[0]["messages"])
+        self.assertIn("NOTEBOOK_REVENUE_9876", content)
+        self.assertIn("PPTX_TABLE_TOTAL_1234", content)
+        report = json.loads((self.logs / "judge-details.extraction.json").read_text())
+        self.assertEqual(report["status"], "complete")
+
+    @unittest.skipUnless(os.environ.get("JOBBENCH_TEST_CALC") == "1", "requires prepared calculator")
+    def test_recalculated_excel_evidence_reaches_judge_request(self):
+        import openpyxl
+        workbook = openpyxl.Workbook()
+        workbook.active["A1"] = 10
+        workbook.active["B1"] = "=A1*2"
+        workbook.save(self.output / "book.xlsx")
+        before = (self.output / "book.xlsx").read_bytes()
+        self.write_rubrics([{"rubric": "pass-rubric", "weight": 1, "criterion": ["correct"]}])
+        result = self.run_verifier()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        content = json.dumps(JudgeHandler.requests[0]["messages"])
+        self.assertIn("=A1*2", content)
+        self.assertIn("recalculated=20", content)
+        self.assertEqual((self.output / "book.xlsx").read_bytes(), before)
 
     def test_empty_output_is_valid_zero_without_api_key_or_request(self) -> None:
         self.write_rubrics(

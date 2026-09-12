@@ -353,6 +353,7 @@ class DatasetRefreshTests(unittest.TestCase):
         shutil.copy2(HELPER.parent.parent / "setup.sh", checkout / "setup.sh")
         write(checkout, "dataset/main/summary.json", "existing history")
         trace = self.base / "trace.jsonl"
+        write(checkout, "eval/setup_judge.sh", 'touch "$TRACE.runtime"\n')
         stub = (f"#!{sys.executable}\nimport json, os, sys\n"
                 "with open(os.environ['TRACE'], 'a') as f:\n"
                 " f.write(json.dumps({'args': sys.argv, 'env': os.environ.get('UV_PROJECT_ENVIRONMENT')}) + '\\n')\n")
@@ -364,6 +365,7 @@ class DatasetRefreshTests(unittest.TestCase):
         result = subprocess.run(["bash", str(checkout / "setup.sh"), "--revision", "release-tag",
                                  "--repo-id", "org/other"], env=environment, text=True, capture_output=True)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue(Path(str(trace) + ".runtime").is_file())
         self.assertEqual((checkout / "dataset/main/summary.json").read_text(), "existing history")
         calls = [json.loads(line) for line in trace.read_text().splitlines()]
         self.assertEqual(len(calls), 2)

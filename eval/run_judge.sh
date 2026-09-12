@@ -37,6 +37,11 @@ fi
 
 EVAL_MODEL_DEFAULT=""
 EVAL_MODEL="${EVAL_MODEL:-$EVAL_MODEL_DEFAULT}"
+JUDGE_RUN_LABEL="${JUDGE_RUN_LABEL:-}"
+if [[ -n "$JUDGE_RUN_LABEL" && ! "$JUDGE_RUN_LABEL" =~ ^[A-Za-z0-9._-]+$ ]]; then
+    echo "ERROR: JUDGE_RUN_LABEL may contain only letters, digits, dots, underscores and hyphens." >&2
+    exit 1
+fi
 
 TIMEOUT_PER_RUBRIC="${TIMEOUT_PER_RUBRIC:-300}"
 
@@ -163,7 +168,12 @@ JUDGE_PYTHON="${JUDGE_PYTHON:-$(pick_judge_python)}"
 export TEMP_DIR JUDGE_MODEL TARGET_DIR OUTPUT_DIR_NAME JUDGE_RESULTS_DIR TIMEOUT_PER_RUBRIC DETAIL_LOG_DIR EVAL_MODEL JUDGE_API_BASE JUDGE_API_KEY JUDGE_ALT_API_BASE JUDGE_ALT_API_KEY JUDGE_ALT_MODELS MAX_RETRIES JUDGE_PYTHON
 
 get_safe_judge_model_name() {
-    echo "$JUDGE_MODEL" | sed 's|.*/||' | tr '.' '-'
+    local name
+    name=$(echo "${1:-$JUDGE_MODEL}" | sed 's|.*/||' | tr '.' '-')
+    if [[ -n "$JUDGE_RUN_LABEL" ]]; then
+        name="${name}_${JUDGE_RUN_LABEL}"
+    fi
+    echo "$name"
 }
 
 aggregate_results() {
@@ -203,6 +213,12 @@ is_model_judged() {
     local judged_count
     judged_count=$(jq '.rubrics | length' "$result_file" 2>/dev/null || echo "0")
     if [[ "$judged_count" -eq "$rubric_count" ]]; then
+        local recorded current
+        recorded=$(jq -r '.judge_implementation.sha256 // "unknown"' "$result_file")
+        current=$("$JUDGE_PYTHON" "${SCRIPT_DIR}/judge.py" --print-implementation 2>/dev/null | jq -r '.sha256 // "unknown"')
+        if [[ -z "$current" || "$recorded" != "$current" || "$recorded" == "unknown" ]]; then
+            echo "      [WARN] Existing scores were made with another/unrecorded judge. Preserving them; use a new JUDGE_RUN_LABEL to rejudge these outputs." >&2
+        fi
         return 0
     fi
     return 1
@@ -337,6 +353,7 @@ judge_task() {
         echo "  [DEBUG MODE] Filtering for eval model: $EVAL_MODEL" | tee -a "$log_file"
     fi
 
+    local failed=0
     for model_dir in "${model_dirs[@]}"; do
         local model_name
         model_name=$(basename "$model_dir")
@@ -349,11 +366,14 @@ judge_task() {
         fi
 
         echo "" | tee -a "$log_file"
-        judge_model_output "$task_dir" "$task_name" "$model_dir" "$model_name" "$rubrics_path" "$rubric_count" "$log_file"
+        if ! judge_model_output "$task_dir" "$task_name" "$model_dir" "$model_name" "$rubrics_path" "$rubric_count" "$log_file"; then
+            failed=1
+        fi
     done
 
     echo "" | tee -a "$log_file"
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] Completed: $task_name" | tee -a "$log_file"
+    return "$failed"
 }
 
 run_with_judge_model() {
@@ -361,7 +381,7 @@ run_with_judge_model() {
     export JUDGE_MODEL="$judge_model"
 
     local safe_judge_name
-    safe_judge_name=$(echo "$judge_model" | sed 's|.*/||' | tr '.' '-')
+    safe_judge_name=$(get_safe_judge_model_name "$judge_model")
     local log_file="${LOG_DIR}/jb_judge_${safe_judge_name}_$(date +%Y%m%d_%H%M%S).log"
 
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] Starting judge with model: $judge_model" | tee -a "$log_file"
@@ -370,6 +390,8 @@ run_with_judge_model() {
     local total_tasks=${#task_dirs[@]}
 
     local completed=0
+    local failed=0
+    local task_exit_code
     for task_dir in "${task_dirs[@]}"; do
         ((completed++))
         echo "" | tee -a "$log_file"
@@ -378,10 +400,15 @@ run_with_judge_model() {
         local tname="${profession}_$(basename "$task_dir")"
         echo "[$judge_model] [$completed/$total_tasks] Processing: $tname" | tee -a "$log_file"
         judge_task "$task_dir" 2>&1 | tee -a "$log_file"
+        task_exit_code=${PIPESTATUS[0]}
+        if [[ "$task_exit_code" -ne 0 ]]; then
+            failed=1
+        fi
     done
 
     echo "" | tee -a "$log_file"
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] Completed judge with model: $judge_model" | tee -a "$log_file"
+    return "$failed"
 }
 
 main() {
@@ -394,6 +421,7 @@ main() {
     echo "Alt Judge API: $JUDGE_ALT_API_BASE"
     echo "Alt Judge Models: ${JUDGE_ALT_MODELS:-<none>}"
     echo "Judge Python: $JUDGE_PYTHON"
+    echo "Judge Run Label: ${JUDGE_RUN_LABEL:-<original result paths>}"
     echo "Max Concurrent per model: $MAX_CONCURRENT"
     echo "Max Retries per rubric: $MAX_RETRIES"
     if [[ -n "${EVAL_MODEL:-}" ]]; then
@@ -460,7 +488,7 @@ main() {
             for eval_model_dir in "$judge_base"/*/; do
                 for judge_model in "${JUDGE_MODELS_ARRAY[@]}"; do
                     local safe_judge_name
-                    safe_judge_name=$(echo "$judge_model" | sed 's|.*/||' | tr '.' '-')
+                    safe_judge_name=$(get_safe_judge_model_name "$judge_model")
                     local result_file="${eval_model_dir}${safe_judge_name}_judge.json"
                     if [[ -f "$result_file" ]]; then
                         local eval_model
@@ -482,6 +510,7 @@ main() {
 
     echo ""
     echo "Results saved to: ${JUDGE_RESULTS_DIR}/{eval_model}/{judge_model}_judge.json"
+    return "$((failed > 0))"
 }
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then

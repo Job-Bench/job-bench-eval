@@ -16,7 +16,7 @@ from unittest import mock
 HARBOR_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(HARBOR_ROOT))
 
-from jobbench_harbor import hf_source, prepare
+from jobbench_harbor import hf_source, prepare, render
 
 
 REPO_ID = "example/jobbench"
@@ -128,6 +128,63 @@ class PrepareFixture(unittest.TestCase):
 
 
 class GenerationTests(PrepareFixture):
+    def common_inputs(self, directory: Path) -> tuple[Path, Path]:
+        helpers = directory / "jobbench_eval"
+        helpers.mkdir(parents=True)
+        (helpers / "__init__.py").write_text("", encoding="utf-8")
+        (helpers / "reader.py").write_text("VALUE = 1\n", encoding="utf-8")
+        runtime = directory / "calc-runtime" / "Dockerfile"
+        runtime.parent.mkdir()
+        runtime.write_text("FROM runtime:one\n", encoding="utf-8")
+        return helpers, runtime
+
+    def test_helper_and_calc_runtime_changes_regenerate_real_task_packages(self) -> None:
+        add_task(self.snapshot, "main", "accountants", 1)
+        helpers, runtime = self.common_inputs(self.base / "common-eval")
+        with mock.patch.object(render, "JUDGE_HELPERS", helpers), mock.patch.object(
+            render, "CALC_RUNTIME_DOCKERFILE", runtime
+        ):
+            def generate():
+                return prepare.generate(
+                    self.snapshot, self.root, repo_id=REPO_ID,
+                    revision=REVISION, judge_path=self.judge,
+                )
+
+            first = generate()
+            original = self.active_generation()
+            (helpers / "reader.py").write_text("VALUE = 2\n", encoding="utf-8")
+            second = generate()
+
+            self.assertNotEqual(first["fingerprint"], second["fingerprint"])
+            self.assertNotEqual(first["rendering_sha256"], second["rendering_sha256"])
+            self.assertEqual(first["judge_sha256"], second["judge_sha256"])
+            relative = "tasks/main--accountants--task1/tests/jobbench_eval/reader.py"
+            self.assertEqual((original / relative).read_text(), "VALUE = 1\n")
+            self.assertEqual((self.active_generation() / relative).read_text(), "VALUE = 2\n")
+
+            runtime.write_text("FROM runtime:two\n", encoding="utf-8")
+            third = generate()
+            self.assertNotEqual(second["fingerprint"], third["fingerprint"])
+            copied_runtime = self.active_generation() / "tasks/main--accountants--task1/tests/calc-runtime/Dockerfile"
+            self.assertEqual(copied_runtime.read_text(), "FROM runtime:two\n")
+
+    def test_common_input_hash_is_location_independent_and_excludes_bytecode(self) -> None:
+        first_helpers, first_runtime = self.common_inputs(self.base / "first")
+        second_helpers, second_runtime = self.common_inputs(self.base / "second")
+        cache = second_helpers / "__pycache__"
+        cache.mkdir()
+        (cache / "reader.cpython-312.pyc").write_bytes(b"irrelevant cache")
+        (second_helpers / "legacy.pyc").write_bytes(b"irrelevant bytecode")
+
+        hashes = []
+        for helpers, runtime in ((first_helpers, first_runtime), (second_helpers, second_runtime)):
+            with mock.patch.object(render, "JUDGE_HELPERS", helpers), mock.patch.object(
+                render, "CALC_RUNTIME_DOCKERFILE", runtime
+            ):
+                hashes.append(prepare._rendering_hash(self.root))
+
+        self.assertEqual(hashes[0], hashes[1])
+
     def test_changed_prompt_replaces_active_generation_and_keeps_old_one(self) -> None:
         task = add_task(self.snapshot, "main", "accountants", 1, prompt="old")
         first = self.generate()
