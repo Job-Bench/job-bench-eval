@@ -10,6 +10,7 @@ __pycache__/
 .venv/
 
 # Benchmark runtime artifacts
+/artifacts/
 /eval/logs/
 /eval/.judge_tmp/
 /opencode/
