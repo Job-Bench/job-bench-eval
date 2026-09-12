@@ -178,7 +178,8 @@ extract_session_id_from_traj() {
     if [[ ! -s "$traj_file" ]]; then
         return 0
     fi
-    grep -m1 -o '"sessionID":"[^"]*"' "$traj_file" 2>/dev/null | cut -d'"' -f4 || true
+    # A single JSONL event can contain both top-level and nested session IDs.
+    grep -m1 -o '"sessionID"[[:space:]]*:[[:space:]]*"[^"]*"' "$traj_file" 2>/dev/null | head -n 1 | cut -d'"' -f4 || true
 }
 
 # Append a structured attempt-index row for later batch error analysis
