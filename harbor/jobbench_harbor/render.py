@@ -130,7 +130,7 @@ repo_id = {_toml_string(repo_id)}
 revision = {_toml_string(revision)}
 
 [agent]
-timeout_sec = 3600.0
+timeout_sec = 7200.0
 network_mode = "public"
 
 [verifier]

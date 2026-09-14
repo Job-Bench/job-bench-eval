@@ -25,8 +25,8 @@ Use Harbor's native agent authentication and model configuration. Set maximum
 output tokens and context limits through the selected agent/provider's supported
 settings; parameter names vary. Agent kwargs can be passed with `--ak` or in a
 YAML configuration. [`configs/example.yaml`](configs/example.yaml) shows
-Terminus-2 turn and output limits. Task timeouts are separate; use Harbor's timeout
-multiplier options to adjust them.
+Terminus-2 turn and output limits. Agents have **2 hours per task** by default;
+use Harbor's timeout multiplier options to adjust this limit.
 
 For OpenCode, the optional [`configs/opencode.yaml`](configs/opencode.yaml)
 example pins **v1.14.18**, matching [`setup_opencode.sh`](../setup_opencode.sh).
