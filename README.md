@@ -12,6 +12,20 @@ default to `main`, the leaderboard split, and use **xAI `grok-4.3`** as the judg
 Use `easy` explicitly for simplified tasks. Some tasks require live web search;
 search and browser tools depend on the selected agent.
 
+## Scoring
+
+The benchmark score is the **mean of per-task weighted scores**. Within each
+task, a rubric block earns its full weight only if all its criteria pass;
+otherwise it earns zero. Compute each task's score as
+`round(total_score / max_score, 4)`, then average those scores and multiply by 100.
+For a complete main run, all 65 tasks have equal weight. This is the same
+aggregation used by Harbor's default mean reward, **not** the sum of earned
+points divided by the sum of possible points across tasks.
+
+Report task coverage alongside the score. A subset or a run with missing/failed
+judgements is not a complete main result; resolve judge errors before reporting
+the final score. The unweighted rubric `pass_rate` is a separate diagnostic.
+
 ## Choose an evaluation route
 
 | Route | Workflow | Results |

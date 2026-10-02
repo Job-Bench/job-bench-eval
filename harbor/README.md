@@ -105,11 +105,21 @@ external sites or APIs may require their own authentication.
 
 Both evaluation routes use the same judge and artifact extraction logic. Harbor
 runs verification in a separate image and gives judge credentials only to the
-verifier. The weighted reward is:
+verifier. Each rubric block earns its full weight only if all its criteria pass;
+otherwise it earns zero. The per-task weighted reward is:
 
 ```text
 reward = round(sum(passed rubric weights) / sum(all rubric weights), 4)
 ```
+
+Harbor's default `Mean` metric averages these rewards. With one trial per task
+and all 65 main tasks successfully judged, the benchmark score is
+`100 * sum(task rewards) / 65`: **equal weight per task, rubric weights within
+each task**. Ordinary evaluation uses the same aggregation. Do not instead
+divide total earned points by total possible points across tasks. Report task
+coverage; subset runs or runs with failed verification are not complete main
+results. Custom metrics, repeated trials, or missing rewards must not be treated
+as the standard one-trial-per-task score without checking their aggregation.
 
 This differs from the unweighted rubric pass rate. Jobs and collected deliverables
 are saved under `harbor/jobs/`; each trial retains `reward.json`, detailed judge

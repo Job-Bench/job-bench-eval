@@ -142,9 +142,26 @@ dataset/<split>/<profession>/taskN/
     └── grok-4-3_judge.json          # rubric results and score
 ```
 
-Logs are in `eval/logs/`. In each report, `total_score / max_score` is the weighted
-score; `pass_rate` is the unweighted percentage of rubrics fully passed. To combine
-tasks, divide the sum of `total_score` by the sum of `max_score`.
+Logs are in `eval/logs/`. In each report, `total_score / max_score` is the task's
+rubric-weighted score. Each rubric block earns its full weight only when all its
+criteria pass; otherwise it earns zero. `pass_rate` is the unweighted percentage
+of rubric blocks fully passed, not the benchmark score.
+
+To combine tasks, use the **mean of per-task weighted scores**, matching Harbor's
+default mean reward:
+
+```text
+task_score = round(total_score / max_score, 4)
+benchmark_score_pct = 100 * sum(task_scores) / number_of_tasks
+```
+
+For a complete main run, average all 65 task scores equally. Do not divide the
+sum of earned points by the sum of possible points across tasks: that would give
+tasks with larger rubric totals more weight. Aggregate separately for each
+evaluated model and judge/run, and report task coverage. Missing results or judge
+API/parsing failures must be resolved before reporting a complete benchmark
+score; an average over a subset is only a partial result. The runner's summary
+lists per-task results; it does not calculate this cross-task average.
 
 ## Judge evidence
 
