@@ -53,6 +53,10 @@ MAX_RETRIES="${MAX_RETRIES:-2}"
 OPENCODE_PROVIDER_TIMEOUT="${OPENCODE_PROVIDER_TIMEOUT:-false}"
 OPENCODE_PROVIDER_CHUNK_TIMEOUT="${OPENCODE_PROVIDER_CHUNK_TIMEOUT:-1800000}"
 
+# Share cache routing across tasks/turns for SDKs that support prompt_cache_key.
+# Disable automatic injection for endpoints that reject the optional parameter.
+OPENCODE_PROMPT_CACHE_ENABLED="${OPENCODE_PROMPT_CACHE_ENABLED:-true}"
+
 # OpenCode otherwise caps model output (including reasoning tokens) at 32K.
 # Raise the default to 128K while preserving explicit caller overrides.
 export OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX="${OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX:-131072}"
@@ -93,22 +97,22 @@ get_model_name() {
 }
 
 configure_opencode_provider_timeouts() {
-    local provider_ids=()
-    local entry model_id provider_id
+    local model_ids=()
+    local entry
 
     for entry in "${MODELS[@]}"; do
-        model_id=$(get_model_id "$entry")
-        provider_id="${model_id%%/*}"
-        provider_ids+=("$provider_id")
+        model_ids+=("$(get_model_id "$entry")")
     done
 
     local base_config="${OPENCODE_CONFIG_CONTENT:-}"
     OPENCODE_CONFIG_CONTENT=$(
         OPENCODE_CONFIG_CONTENT="$base_config" \
+        OPENCODE_PROMPT_CACHE_ENABLED="$OPENCODE_PROMPT_CACHE_ENABLED" \
         OPENCODE_DEFAULT_CONTEXT="$OPENCODE_DEFAULT_CONTEXT" python3 - \
             "$OPENCODE_PROVIDER_TIMEOUT" \
             "$OPENCODE_PROVIDER_CHUNK_TIMEOUT" \
-            "${provider_ids[@]}" <<'PY'
+            "${model_ids[@]}" <<'PY'
+import hashlib
 import json
 import os
 import sys
@@ -135,8 +139,12 @@ config = json.loads(raw) if raw else {}
 providers = config.setdefault("provider", {})
 timeout = parse_timeout(sys.argv[1])
 chunk_timeout = parse_positive_int("OPENCODE_PROVIDER_CHUNK_TIMEOUT", sys.argv[2])
+cache_enabled = os.environ["OPENCODE_PROMPT_CACHE_ENABLED"].lower()
+if cache_enabled not in ("true", "false"):
+    raise ValueError("OPENCODE_PROMPT_CACHE_ENABLED must be true or false")
+model_ids = list(dict.fromkeys(sys.argv[3:]))
 
-for provider_id in dict.fromkeys(sys.argv[3:]):
+for provider_id in dict.fromkeys(model_id.split("/", 1)[0] for model_id in model_ids):
     provider = providers.setdefault(provider_id, {})
     options = provider.setdefault("options", {})
     options["timeout"] = timeout
@@ -149,6 +157,26 @@ for provider in providers.values():
         limit = model.setdefault("limit", {})
         if not limit.get("context"):
             limit["context"] = default_context
+
+# SDK choice can be overridden per model. Unknown/other SDKs are untouched.
+# Add catalog-model stubs AFTER context defaults so their catalog limits survive.
+if cache_enabled == "true":
+    builtin_sdks = {"openai": "@ai-sdk/openai", "azure": "@ai-sdk/azure"}
+    for qualified_id in model_ids:
+        provider_id, separator, model_id = qualified_id.partition("/")
+        if not separator or not model_id:
+            continue
+        provider = providers[provider_id]
+        model = (provider.get("models") or {}).get(model_id, {})
+        sdk = ((model.get("provider") or {}).get("npm") or provider.get("npm")
+               or builtin_sdks.get(provider_id))
+        if sdk not in ("@ai-sdk/openai", "@ai-sdk/azure"):
+            continue
+        model = provider.setdefault("models", {}).setdefault(model_id, {})
+        options = model.setdefault("options", {})
+        identity = provider_id + "/" + (model.get("id") or model_id)
+        key = "jobbench-opencode-" + hashlib.sha256(identity.encode()).hexdigest()[:32]
+        options.setdefault("promptCacheKey", key)
 
 print(json.dumps(config, separators=(",", ":")))
 PY
@@ -493,6 +521,7 @@ main() {
     echo "Max retries on timeout: $MAX_RETRIES"
     echo "OpenCode provider total timeout: $OPENCODE_PROVIDER_TIMEOUT"
     echo "OpenCode provider SSE chunk timeout: ${OPENCODE_PROVIDER_CHUNK_TIMEOUT}ms"
+    echo "OpenCode automatic prompt cache key: $OPENCODE_PROMPT_CACHE_ENABLED"
     echo "OpenCode output token max: $OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX"
     echo "Structured trajectory directory name: $TRAJ_DIR_NAME"
     echo "OpenCode directory: $OPENCODE_DIR"

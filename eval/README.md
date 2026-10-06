@@ -75,6 +75,24 @@ Declare custom models in `OPENCODE_CONFIG_CONTENT`. Set each model's
 reasoning tokens count toward the output limit. The runner fills missing or zero
 context limits with `OPENCODE_DEFAULT_CONTEXT` (1,000,000) so auto-compaction works.
 
+The runner defaults `OPENCODE_PROMPT_CACHE_ENABLED=true`. For selected models
+using `@ai-sdk/openai` or `@ai-sdk/azure` (including built-in OpenAI/Azure models),
+it sets a stable, per-provider/model `options.promptCacheKey`, serialized by the
+SDK as `prompt_cache_key`. The key is shared across tasks, turns, and reruns;
+explicit model keys are preserved. Other or unrecognized SDKs are untouched.
+This is a routing hint, not a guarantee of a cache hit.
+
+If a compatible endpoint rejects this parameter, disable JobBench's automatic
+injection:
+
+```bash
+OPENCODE_PROMPT_CACHE_ENABLED=false BENCHMARK_MODELS="your-provider/your-model" \
+  ./eval/run_benchmark_opencode.sh
+```
+
+Disabling injection does not remove explicitly configured keys or override a
+provider's native OpenCode caching behavior.
+
 ## Run tasks
 
 Runners and judge default to the leaderboard split, `main`. Use `SPLIT=easy`
@@ -88,6 +106,7 @@ for simplified tasks, setting it for both generation and judging.
 | `RUN_LABEL` | Empty | Suffix for output and trajectory directories |
 | `MAX_CONCURRENT_PER_MODEL` | Claude: 2; Codex: 4; OpenCode: 6 | Parallel tasks per model |
 | `TIMEOUT_PER_TASK` | Claude/Codex: 3600; OpenCode: 7200 | Seconds per task attempt |
+| `OPENCODE_PROMPT_CACHE_ENABLED` | `true` | OpenCode: add stable cache routing keys for supported SDKs |
 
 For a subset, copy selected tasks while keeping the `<profession>/taskN/`
 layout. Use `TASKS_BASE_DIR` for generation and `TARGET_DIR` for judging:
